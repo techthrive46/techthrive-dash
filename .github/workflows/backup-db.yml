@@ -14,7 +14,7 @@ permissions:
 jobs:
   backup:
     runs-on: ubuntu-latest
-    environment: production
+    environment: backend-production
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4

@@ -18,7 +18,9 @@ export AWS_PAGER=""
 
 APP="techthrive-backend"
 GITHUB_REPO="${GITHUB_REPO:-techthrive46/techthrive-dash}"
-GITHUB_ENVIRONMENT="production"
+# Not "production": Vercel already created a "Production" environment in this repo,
+# and GitHub environment names are case-insensitive.
+GITHUB_ENVIRONMENT="${GITHUB_ENVIRONMENT:-backend-production}"
 FRONTEND_ORIGIN="${FRONTEND_ORIGIN:?Set FRONTEND_ORIGIN, e.g. https://techthrive-dash.vercel.app}"
 PREVIEW_ORIGIN_REGEX="${PREVIEW_ORIGIN_REGEX:-}"
 ENV_FILE="${ENV_FILE:-backend/.env.production}"

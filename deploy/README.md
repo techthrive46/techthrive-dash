@@ -14,6 +14,8 @@ Vercel (frontend)  ──HTTPS──▶  AWS Lambda + Function URL (Django)  ─
 | Database | Neon (free plan) | Free |
 | Backups | S3, nightly `pg_dump`, kept 30 days | Cents |
 
+**Database region:** the Neon project is in London (`eu-west-2`) and the backend is in Mumbai (`ap-south-1`), a choice made at setup time. Each query crosses that link, so warm API calls measured at launch were about **0.5–0.7 s** (`/api/projects/`, `/api/boards/`) and about **1.2 s** (`/api/dashboard/summary/`). If that feels slow, create a Neon project in the region nearest the backend, move the data with `pg_dump`/`pg_restore` (see *Restore a backup*), and update `DATABASE_URL` in Lambda and in GitHub.
+
 **Trade-off:** after the app has been idle, the first request takes about 2–4 s (Lambda cold start plus Neon waking up). After that it's normal speed. Don't add a "keep warm" ping that touches the database: it would keep Neon awake and use up its free compute allowance. `/api/health/` never touches the database.
 
 ## One-time setup
@@ -38,7 +40,7 @@ You need: Docker running, the AWS CLI with a `techthrive` profile (`aws configur
 
    It creates the ECR repository, the Lambda function with a public HTTPS Function URL, the S3 backup bucket, and a GitHub OIDC deploy role. It also builds and pushes the image, runs migrations against Neon, and ends by printing the backend URL and the values for the next two steps. It's safe to re-run. Optional overrides: `AWS_PROFILE` (default `techthrive`), `AWS_REGION` (default `ap-south-1`), `GITHUB_REPO`, `BACKUP_BUCKET`.
 
-3. **GitHub**: in the repo's Settings → Environments, create **`production`** and add:
+3. **GitHub**: in the repo's Settings → Environments, create **`backend-production`** and add the values below. (Not `production`: Vercel already made a `Production` environment, and GitHub environment names aren't case-sensitive.) This needs admin rights on the repo.
 
    | Type | Name | Value |
    |---|---|---|

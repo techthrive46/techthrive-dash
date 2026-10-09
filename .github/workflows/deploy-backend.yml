@@ -25,7 +25,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: production
+    environment: backend-production
     steps:
       - uses: actions/checkout@v4
 
