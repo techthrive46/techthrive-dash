@@ -1,10 +1,19 @@
 "use client";
 
 import { ColumnColorPicker } from "@/components/kanban/column-color-picker";
+import { IssueTypeIcon } from "@/components/kanban/jira-icons";
 import { KanbanCardItem } from "@/components/kanban/kanban-card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ISSUE_TYPES } from "@/lib/jira";
 import { getColumnTheme, isCompletedColumn } from "@/lib/kanban-themes";
 import { stopDragPropagation } from "@/lib/use-sortable-click";
-import type { KanbanColumn as KanbanColumnType } from "@/lib/types";
+import type { IssueType, KanbanCard, KanbanColumn as KanbanColumnType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useDroppable } from "@dnd-kit/core";
 import {
@@ -14,15 +23,63 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { AnimatePresence, motion } from "framer-motion";
+import { KeyboardEvent, useRef, useState } from "react";
+
+const COLUMN_WIDTH = "w-[280px]";
 
 interface KanbanColumnProps {
   column: KanbanColumnType;
   allColumns: KanbanColumnType[];
+  /** Cards to render; may be a filtered subset of column.cards. */
+  visibleCards: KanbanCard[];
   index: number;
-  onAddCard: (columnId: string) => void;
+  creating: boolean;
+  onOpenCreate: (columnId: string) => void;
+  onCloseCreate: () => void;
+  onCreateIssue: (columnId: string, title: string, issueType: IssueType) => Promise<void>;
   onCardClick: (cardId: string) => void;
   onColorChange: (columnId: string, color: string) => void;
+  onEditWipLimit: (columnId: string) => void;
   onDeleteColumn?: (columnId: string) => void;
+}
+
+function ColumnHeading({
+  column,
+  count,
+  overLimit,
+}: {
+  column: KanbanColumnType;
+  count: number;
+  overLimit: boolean;
+}) {
+  return (
+    <>
+      <span className="truncate text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+        {column.name}
+      </span>
+      <span
+        className={cn(
+          "shrink-0 text-xs font-semibold",
+          overLimit ? "text-red-500" : "text-[var(--muted-light)]",
+        )}
+      >
+        {count}
+      </span>
+      {column.wip_limit !== null && (
+        <span
+          className={cn(
+            "shrink-0 rounded px-1 font-mono text-[10px] font-medium uppercase",
+            overLimit
+              ? "bg-red-500/15 text-red-500"
+              : "bg-[var(--surface-hover)] text-[var(--muted)]",
+          )}
+          title="Work-in-progress limit"
+        >
+          max {column.wip_limit}
+        </span>
+      )}
+    </>
+  );
 }
 
 export function KanbanColumnPreview({
@@ -32,27 +89,105 @@ export function KanbanColumnPreview({
   column: KanbanColumnType;
   className?: string;
 }) {
-  const theme = getColumnTheme(column);
+  return (
+    <div
+      className={cn(
+        "flex flex-col rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] shadow-lg",
+        COLUMN_WIDTH,
+        className,
+      )}
+    >
+      <div className="flex items-center gap-2 px-3 py-3">
+        <ColumnHeading column={column} count={column.cards.length} overLimit={false} />
+      </div>
+      <div className="min-h-[80px]" />
+    </div>
+  );
+}
+
+function InlineCreate({
+  onSubmit,
+  onClose,
+}: {
+  onSubmit: (title: string, issueType: IssueType) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [issueType, setIssueType] = useState<IssueType>("task");
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  async function submit() {
+    const trimmed = title.trim();
+    if (!trimmed || saving) return;
+    setSaving(true);
+    try {
+      await onSubmit(trimmed, issueType);
+      // Jira keeps the composer open so several issues can be added in a row.
+      setTitle("");
+    } finally {
+      setSaving(false);
+      inputRef.current?.focus();
+    }
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void submit();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+    }
+  }
 
   return (
     <div
-      className={cn("flex w-[272px] flex-col rounded-2xl border border-transparent shadow-lg", className)}
-      style={theme.columnStyle}
+      className="rounded-md border-2 border-[var(--accent)] bg-[var(--surface)] p-2 shadow-sm"
+      onPointerDown={stopDragPropagation}
     >
-      <div className="flex items-center gap-2 rounded-t-2xl px-3 py-3" style={theme.headerStyle}>
-        <div
-          className="inline-flex min-w-0 flex-1 items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
-          style={theme.badgeStyle}
-        >
-          <span className="h-2 w-2 shrink-0 rounded-full shadow-sm" style={theme.dotStyle} />
-          <span className="truncate">{column.name}</span>
-          <span className="shrink-0 font-mono opacity-60">{column.cards.length}</span>
+      <textarea
+        ref={inputRef}
+        autoFocus
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={() => {
+          if (!title.trim()) onClose();
+        }}
+        placeholder="What needs to be done?"
+        rows={2}
+        // readOnly rather than disabled: disabling would drop focus, and with it Escape/Enter.
+        readOnly={saving}
+        className="w-full resize-none bg-transparent text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--muted-light)]"
+      />
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-0.5" role="radiogroup" aria-label="Issue type">
+          {ISSUE_TYPES.map((type) => (
+            <button
+              key={type.key}
+              type="button"
+              role="radio"
+              aria-checked={issueType === type.key}
+              title={type.label}
+              // Keep focus in the textarea so blur doesn't close the composer.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setIssueType(type.key)}
+              className={cn(
+                "rounded p-1 transition-colors",
+                issueType === type.key
+                  ? "bg-[var(--accent-light)] ring-1 ring-[var(--accent)]/40"
+                  : "opacity-50 hover:opacity-100",
+              )}
+            >
+              <IssueTypeIcon type={type.key} className="h-3.5 w-3.5" />
+            </button>
+          ))}
         </div>
-      </div>
-      <div className="min-h-[80px] px-2.5 pb-2.5 pt-2">
-        {column.cards.length === 0 && (
-          <p className={cn("py-6 text-center text-xs", theme.cardMuted)}>Drop pages here</p>
-        )}
+        <span className="font-mono text-[10px] text-[var(--muted-light)]">
+          {saving ? "creating..." : "enter ↵ to create"}
+        </span>
       </div>
     </div>
   );
@@ -61,14 +196,20 @@ export function KanbanColumnPreview({
 export function KanbanColumn({
   column,
   allColumns,
+  visibleCards,
   index,
-  onAddCard,
+  creating,
+  onOpenCreate,
+  onCloseCreate,
+  onCreateIssue,
   onCardClick,
   onColorChange,
+  onEditWipLimit,
   onDeleteColumn,
 }: KanbanColumnProps) {
   const theme = getColumnTheme(column);
   const completedColumn = isCompletedColumn(column, allColumns);
+  const overLimit = column.wip_limit !== null && column.cards.length > column.wip_limit;
   const {
     attributes,
     listeners,
@@ -83,72 +224,75 @@ export function KanbanColumn({
     data: { type: "column-drop", column },
   });
 
-  const cardIds = column.cards.map((card) => card.id);
-
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    ...theme.columnStyle,
-    ...(isOver && !isDragging ? theme.dropRingStyle : {}),
   };
 
   return (
     <motion.div
       ref={setSortableRef}
       style={style}
-      initial={{ opacity: 0, x: 24, scale: 0.98 }}
-      animate={{ opacity: isDragging ? 0 : 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      transition={{ duration: 0.35, delay: index * 0.06, ease: [0.22, 1, 0.36, 1] }}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: isDragging ? 0.4 : 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.97 }}
+      transition={{ duration: 0.3, delay: index * 0.04, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
-        "group flex w-[272px] shrink-0 flex-col rounded-2xl border border-transparent shadow-sm",
+        "group flex shrink-0 flex-col rounded-lg border transition-colors",
+        COLUMN_WIDTH,
+        overLimit
+          ? "border-red-500/30 bg-red-500/[0.06]"
+          : "border-[var(--border)] bg-[var(--surface-muted)]",
+        isOver && !isDragging && "border-[var(--accent)]/50",
         isDragging && "pointer-events-none",
-        isOver && !isDragging && "shadow-md",
       )}
     >
       <div
-        className="flex items-center justify-between gap-2 rounded-t-2xl px-3 py-3"
-        style={theme.headerStyle}
+        className="flex cursor-grab touch-none items-center gap-2 px-3 pb-2 pt-3 active:cursor-grabbing"
         {...attributes}
         {...listeners}
       >
-        <div
-          className="inline-flex min-w-0 flex-1 cursor-grab touch-none items-center gap-2 rounded-full px-3 py-1 text-xs font-medium active:cursor-grabbing"
-          style={theme.badgeStyle}
-        >
-          <div onPointerDown={stopDragPropagation}>
-            <ColumnColorPicker
-              color={theme.color}
-              onChange={(color) => onColorChange(column.id, color)}
-            />
-          </div>
-          <span className="truncate">{column.name}</span>
-          <span className="shrink-0 font-mono opacity-60">{column.cards.length}</span>
+        <div onPointerDown={stopDragPropagation} className="flex shrink-0">
+          <ColumnColorPicker
+            color={theme.color}
+            onChange={(color) => onColorChange(column.id, color)}
+          />
         </div>
-        {onDeleteColumn && (
-          <button
-            type="button"
-            onClick={() => onDeleteColumn(column.id)}
-            onPointerDown={stopDragPropagation}
-            className="rounded-md px-1.5 py-0.5 text-sm text-[var(--muted)] opacity-0 transition-all hover:bg-[var(--surface)]/80 hover:text-red-500 group-hover:opacity-100"
-            title="Remove bucket"
-          >
-            ×
-          </button>
-        )}
+        <ColumnHeading column={column} count={column.cards.length} overLimit={overLimit} />
+        <div
+          onPointerDown={stopDragPropagation}
+          className="ml-auto opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger variant="ghost" aria-label={`${column.name} column options`} />
+            <DropdownMenuContent className="min-w-[180px]">
+              <DropdownMenuItem onClick={() => onOpenCreate(column.id)}>Create ticket</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onEditWipLimit(column.id)}>
+                {column.wip_limit === null ? "Set column limit" : "Edit column limit"}
+              </DropdownMenuItem>
+              {onDeleteColumn && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem destructive onClick={() => onDeleteColumn(column.id)}>
+                    Delete column
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       <div
         ref={setDroppableRef}
-        className="flex min-h-[140px] flex-1 flex-col gap-2 px-2.5 pb-2.5 pt-2"
+        className="flex min-h-[120px] flex-1 flex-col gap-1.5 px-2 pb-2"
       >
-        <SortableContext items={cardIds} strategy={verticalListSortingStrategy}>
+        <SortableContext items={visibleCards.map((card) => card.id)} strategy={verticalListSortingStrategy}>
           <AnimatePresence initial={false}>
-            {column.cards.map((card) => (
+            {visibleCards.map((card) => (
               <KanbanCardItem
                 key={card.id}
                 card={card}
-                theme={theme}
                 isCompletedColumn={completedColumn}
                 onClick={() => onCardClick(card.id)}
               />
@@ -156,17 +300,26 @@ export function KanbanColumn({
           </AnimatePresence>
         </SortableContext>
 
-        <motion.button
-          type="button"
-          whileHover={{ scale: 1.01 }}
-          whileTap={{ scale: 0.99 }}
-          onClick={() => onAddCard(column.id)}
-          className="mt-auto flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed py-2.5 text-sm transition-colors duration-200 hover:bg-[var(--surface)]/70"
-          style={theme.addBtnStyle}
-        >
-          <span className="text-base leading-none">+</span>
-          New page
-        </motion.button>
+        {creating ? (
+          <InlineCreate
+            onSubmit={(title, issueType) => onCreateIssue(column.id, title, issueType)}
+            onClose={onCloseCreate}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => onOpenCreate(column.id)}
+            onPointerDown={stopDragPropagation}
+            className={cn(
+              "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm font-medium text-[var(--muted)] transition-all hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]",
+              visibleCards.length > 0 &&
+                "opacity-0 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100",
+            )}
+          >
+            <span className="text-base leading-none">+</span>
+            Create ticket
+          </button>
+        )}
       </div>
     </motion.div>
   );

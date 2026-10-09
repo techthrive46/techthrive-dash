@@ -309,3 +309,140 @@ body {
   border: 2px solid transparent;
   background-clip: padding-box;
 }
+
+/* ── Markdown content (Tiptap editor + read-only view) ── */
+.md-content {
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.md-content > * + * {
+  margin-top: 0.5em;
+}
+
+.md-content h1 { font-size: 1.25em; font-weight: 600; }
+.md-content h2 { font-size: 1.125em; font-weight: 600; }
+.md-content h3 { font-size: 1em; font-weight: 600; }
+
+.md-content ul { list-style: disc; padding-left: 1.4em; }
+.md-content ol { list-style: decimal; padding-left: 1.6em; }
+.md-content li > p { margin: 0; }
+.md-content li + li { margin-top: 0.15em; }
+.md-content li::marker { color: var(--muted); }
+
+.md-content ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0.1em;
+}
+
+.md-content ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+
+.md-content ul[data-type="taskList"] li > label {
+  margin-top: 0.3em;
+  user-select: none;
+}
+
+.md-content ul[data-type="taskList"] li > label input {
+  accent-color: var(--accent);
+}
+
+.md-content ul[data-type="taskList"] li > div {
+  flex: 1;
+}
+
+.md-content ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.md-content blockquote {
+  border-left: 3px solid var(--border-strong);
+  padding-left: 0.8em;
+  color: var(--muted);
+}
+
+.md-content code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05em 0.3em;
+}
+
+.md-content pre {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6em 0.8em;
+  overflow-x: auto;
+}
+
+.md-content pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+}
+
+.md-content a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.md-content hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 0.8em 0;
+}
+
+.md-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--muted-light);
+}
+
+/* ── Docs page (Google Docs-style) — layered on top of .md-content ── */
+.doc-content {
+  font-family: Arial, "Helvetica Neue", var(--font-geist-sans), sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--foreground);
+  min-height: 60vh;
+}
+
+.doc-content > * + * { margin-top: 0.6em; }
+.doc-content h1 { font-size: 26px; font-weight: 400; line-height: 1.3; margin-top: 1em; }
+.doc-content h2 { font-size: 21px; font-weight: 400; line-height: 1.35; margin-top: 0.9em; }
+.doc-content h3 { font-size: 18px; font-weight: 500; color: var(--muted); margin-top: 0.8em; }
+.doc-content > h1:first-child,
+.doc-content > h2:first-child,
+.doc-content > h3:first-child { margin-top: 0; }
+
+.doc-content mark {
+  background: #fff3a3;
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.dark .doc-content mark {
+  background: rgba(250, 204, 21, 0.32);
+}
+
+.doc-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--muted-light);
+}

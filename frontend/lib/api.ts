@@ -2,13 +2,20 @@ import { clearTokens, getAccessToken, getRefreshToken, setTokens } from "./auth"
 import type {
   AuthTokens,
   Board,
+  CardComment,
   DashboardSummary,
+  Doc,
+  DocListItem,
   KanbanCard,
   KanbanColumn,
   Milestone,
   MilestoneComment,
   PaginatedResponse,
+  PhaseStatus,
+  PhaseUpdate,
   Project,
+  ProjectPhase,
+  SdlcPhaseKey,
   User,
 } from "./types";
 
@@ -213,6 +220,59 @@ export const api = {
       { method: "DELETE" },
     ),
 
+  updatePhase: (
+    projectId: string,
+    phaseKey: SdlcPhaseKey,
+    payload: { status?: PhaseStatus; notes?: string },
+  ) =>
+    apiFetch<ProjectPhase>(`/api/projects/${projectId}/phases/${phaseKey}/`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  getPhaseUpdates: async (projectId: string, phaseKey: SdlcPhaseKey) => {
+    const data = await apiFetch<PaginatedResponse<PhaseUpdate> | PhaseUpdate[]>(
+      `/api/projects/${projectId}/phases/${phaseKey}/updates/`,
+    );
+    return unwrapList(data);
+  },
+
+  createPhaseUpdate: (projectId: string, phaseKey: SdlcPhaseKey, body: string) =>
+    apiFetch<PhaseUpdate>(`/api/projects/${projectId}/phases/${phaseKey}/updates/`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    }),
+
+  deletePhaseUpdate: (projectId: string, phaseKey: SdlcPhaseKey, updateId: string) =>
+    apiFetch<void>(
+      `/api/projects/${projectId}/phases/${phaseKey}/updates/${updateId}/`,
+      { method: "DELETE" },
+    ),
+
+  getDocs: async (query = "") => {
+    const params = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : "";
+    const data = await apiFetch<PaginatedResponse<DocListItem> | DocListItem[]>(
+      `/api/docs/${params}`,
+    );
+    return unwrapList(data);
+  },
+
+  getDoc: (id: string) => apiFetch<Doc>(`/api/docs/${id}/`),
+
+  createDoc: (payload: Partial<Pick<Doc, "title" | "content" | "content_text">> = {}) =>
+    apiFetch<Doc>("/api/docs/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateDoc: (id: string, payload: Partial<Pick<Doc, "title" | "content" | "content_text">>) =>
+    apiFetch<Doc>(`/api/docs/${id}/`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteDoc: (id: string) => apiFetch<void>(`/api/docs/${id}/`, { method: "DELETE" }),
+
   getBoards: async () => {
     const data = await apiFetch<PaginatedResponse<Board> | Board[]>(
       "/api/boards/",
@@ -258,7 +318,7 @@ export const api = {
   updateColumn: (
     boardId: string,
     columnId: string,
-    payload: { name?: string; color?: string },
+    payload: { name?: string; color?: string; wip_limit?: number | null },
   ) =>
     apiFetch<KanbanColumn>(`/api/boards/${boardId}/columns/${columnId}/`, {
       method: "PATCH",
@@ -270,14 +330,21 @@ export const api = {
       method: "DELETE",
     }),
 
-  createCard: (payload: {
-    column: string;
-    title: string;
-    description?: string;
-    priority?: string;
-    due_date?: string | null;
-    project?: string | null;
-  }) =>
+  createCard: (
+    payload: Partial<
+      Pick<
+        KanbanCard,
+        | "issue_type"
+        | "description"
+        | "priority"
+        | "due_date"
+        | "story_points"
+        | "labels"
+        | "assignee"
+        | "project"
+      >
+    > & { column: string; title: string },
+  ) =>
     apiFetch<KanbanCard>("/api/boards/cards/", {
       method: "POST",
       body: JSON.stringify(payload),
@@ -286,7 +353,19 @@ export const api = {
   updateCard: (
     id: string,
     payload: Partial<
-      Pick<KanbanCard, "title" | "description" | "priority" | "due_date">
+      Pick<
+        KanbanCard,
+        | "title"
+        | "description"
+        | "issue_type"
+        | "priority"
+        | "due_date"
+        | "story_points"
+        | "labels"
+        | "assignee"
+        | "column"
+        | "project"
+      >
     >,
   ) =>
     apiFetch<KanbanCard>(`/api/boards/cards/${id}/`, {
@@ -296,4 +375,18 @@ export const api = {
 
   deleteCard: (id: string) =>
     apiFetch<void>(`/api/boards/cards/${id}/`, { method: "DELETE" }),
+
+  getCardComments: (cardId: string) =>
+    apiFetch<CardComment[]>(`/api/boards/cards/${cardId}/comments/`),
+
+  createCardComment: (cardId: string, body: string) =>
+    apiFetch<CardComment>(`/api/boards/cards/${cardId}/comments/`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    }),
+
+  deleteCardComment: (cardId: string, commentId: string) =>
+    apiFetch<void>(`/api/boards/cards/${cardId}/comments/${commentId}/`, {
+      method: "DELETE",
+    }),
 };

@@ -9,21 +9,15 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 
-import type { DocEntry, PlanEntry, PlanStatus } from "@/lib/types";
+import type { PlanEntry, PlanStatus } from "@/lib/types";
 
 const CONTENT_ROOT = path.join(process.cwd(), "content");
-const DOCS_DIR = path.join(CONTENT_ROOT, "docs");
 const PLANS_DIR = path.join(CONTENT_ROOT, "plans");
 
 type BaseFrontmatter = {
   title: string;
   slug: string;
   publishedAt: string;
-};
-
-type DocsFrontmatter = BaseFrontmatter & {
-  description?: string;
-  tags?: string[];
 };
 
 type PlansFrontmatter = BaseFrontmatter & {
@@ -54,36 +48,6 @@ function sortByNewest<T extends { publishedAt: string }>(items: T[]): T[] {
   return [...items].sort(
     (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
   );
-}
-
-export async function getAllDocs(): Promise<DocEntry[]> {
-  const files = await readMarkdownFiles(DOCS_DIR);
-
-  const docs = await Promise.all(
-    files.map(async (filePath) => {
-      const raw = await fs.readFile(filePath, "utf8");
-      const { data, content } = matter(raw);
-      const frontmatter = data as DocsFrontmatter;
-      const html = await markdownToHtml(content);
-
-      return {
-        title: frontmatter.title,
-        slug: frontmatter.slug,
-        description: frontmatter.description ?? "",
-        tags: frontmatter.tags ?? [],
-        publishedAt: frontmatter.publishedAt,
-        body: content,
-        html,
-      } satisfies DocEntry;
-    }),
-  );
-
-  return sortByNewest(docs);
-}
-
-export async function getDocBySlug(slug: string): Promise<DocEntry | null> {
-  const docs = await getAllDocs();
-  return docs.find((doc) => doc.slug === slug) ?? null;
 }
 
 export async function getAllPlans(): Promise<PlanEntry[]> {

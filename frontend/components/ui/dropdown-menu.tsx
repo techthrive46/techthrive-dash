@@ -68,10 +68,13 @@ export function DropdownMenu({ children }: { children: ReactNode }) {
 export function DropdownMenuTrigger({
   children = <MoreIcon />,
   className,
+  variant = "default",
   "aria-label": ariaLabel = "Open menu",
 }: {
   children?: ReactNode;
   className?: string;
+  /** "bare" applies no size or color, for triggers styled entirely by className. */
+  variant?: "default" | "ghost" | "bare";
   "aria-label"?: string;
 }) {
   const { open, setOpen, menuId } = useDropdownMenu();
@@ -85,8 +88,13 @@ export function DropdownMenuTrigger({
       aria-controls={menuId}
       onClick={() => setOpen(!open)}
       className={cn(
-        "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] shadow-sm transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]",
-        open && "border-[var(--accent)]/30 bg-[var(--accent-light)] text-[var(--accent)]",
+        variant === "default" &&
+          "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] shadow-sm transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]",
+        variant === "ghost" &&
+          "inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]",
+        variant === "bare" && "inline-flex items-center justify-center transition-colors",
+        open && variant === "default" && "border-[var(--accent)]/30 bg-[var(--accent-light)] text-[var(--accent)]",
+        open && variant === "ghost" && "bg-[var(--surface-hover)] text-[var(--foreground)]",
         className,
       )}
     >

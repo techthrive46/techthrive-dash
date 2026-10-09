@@ -6,6 +6,9 @@ from .views import (
     MilestoneCommentListCreateView,
     MilestoneDetailView,
     MilestoneListCreateView,
+    PhaseUpdateDetailView,
+    PhaseUpdateListCreateView,
+    ProjectPhaseDetailView,
     ProjectViewSet,
 )
 
@@ -32,6 +35,21 @@ urlpatterns = [
         "<uuid:project_id>/milestones/<uuid:milestone_id>/comments/<uuid:comment_id>/",
         MilestoneCommentDetailView.as_view(),
         name="project-milestone-comment-detail",
+    ),
+    path(
+        "<uuid:project_id>/phases/<slug:phase_key>/",
+        ProjectPhaseDetailView.as_view(),
+        name="project-phase-detail",
+    ),
+    path(
+        "<uuid:project_id>/phases/<slug:phase_key>/updates/",
+        PhaseUpdateListCreateView.as_view(),
+        name="project-phase-updates",
+    ),
+    path(
+        "<uuid:project_id>/phases/<slug:phase_key>/updates/<uuid:update_id>/",
+        PhaseUpdateDetailView.as_view(),
+        name="project-phase-update-detail",
     ),
     *router.urls,
 ]

@@ -1,14 +1,16 @@
-from django.db.models import Count, Q
+from django.db.models import Count, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 
-from .models import Milestone, MilestoneComment, Project
+from .models import Milestone, MilestoneComment, PhaseUpdate, Project, ProjectPhase
 from .serializers import (
     MilestoneCommentSerializer,
     MilestoneSerializer,
+    PhaseUpdateSerializer,
     ProjectListSerializer,
+    ProjectPhaseSerializer,
     ProjectSerializer,
 )
 
@@ -36,8 +38,17 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     "milestones",
                     filter=Q(milestones__bucket_status=Milestone.BucketStatus.DONE),
                 ),
-            )
-        return qs.prefetch_related("milestones", "board")
+            ).prefetch_related("phases")
+        return qs.prefetch_related(
+            "milestones",
+            "board",
+            Prefetch(
+                "phases",
+                queryset=ProjectPhase.objects.annotate(
+                    update_count=Count("updates")
+                ).order_by("order"),
+            ),
+        )
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -124,3 +135,71 @@ class MilestoneCommentDetailView(generics.RetrieveUpdateDestroyAPIView):
         super().check_object_permissions(request, obj)
         if request.method not in ("GET", "HEAD", "OPTIONS") and obj.user_id != request.user.id:
             raise PermissionDenied("You can only edit your own comments.")
+
+
+class ProjectPhaseDetailView(generics.RetrieveUpdateAPIView):
+    serializer_class = ProjectPhaseSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = "key"
+    lookup_url_kwarg = "phase_key"
+
+    def get_queryset(self):
+        return ProjectPhase.objects.filter(
+            project_id=self.kwargs["project_id"],
+            project__user=self.request.user,
+        ).annotate(update_count=Count("updates"))
+
+    def perform_update(self, serializer):
+        old_status = serializer.instance.status
+        phase = serializer.save()
+        if phase.status != old_status:
+            PhaseUpdate.objects.create(
+                phase=phase,
+                user=self.request.user,
+                kind=PhaseUpdate.Kind.STATUS_CHANGE,
+                body=(
+                    f"{ProjectPhase.Status(old_status).label} → "
+                    f"{ProjectPhase.Status(phase.status).label}"
+                ),
+            )
+            phase.project.sync_status_from_phases()
+        phase.update_count = phase.updates.count()
+
+
+class PhaseUpdateListCreateView(generics.ListCreateAPIView):
+    serializer_class = PhaseUpdateSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return PhaseUpdate.objects.filter(
+            phase__key=self.kwargs["phase_key"],
+            phase__project_id=self.kwargs["project_id"],
+            phase__project__user=self.request.user,
+        ).select_related("user")
+
+    def perform_create(self, serializer):
+        phase = get_object_or_404(
+            ProjectPhase,
+            key=self.kwargs["phase_key"],
+            project_id=self.kwargs["project_id"],
+            project__user=self.request.user,
+        )
+        serializer.save(user=self.request.user, phase=phase)
+
+
+class PhaseUpdateDetailView(generics.DestroyAPIView):
+    serializer_class = PhaseUpdateSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_url_kwarg = "update_id"
+
+    def get_queryset(self):
+        return PhaseUpdate.objects.filter(
+            phase__key=self.kwargs["phase_key"],
+            phase__project_id=self.kwargs["project_id"],
+            phase__project__user=self.request.user,
+        )
+
+    def check_object_permissions(self, request, obj):
+        super().check_object_permissions(request, obj)
+        if obj.user_id != request.user.id:
+            raise PermissionDenied("You can only delete your own updates.")

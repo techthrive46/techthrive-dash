@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Board, Card, Column
+from .models import Board, Card, CardComment, Column
 
 
 class ColumnInline(admin.TabularInline):
@@ -10,7 +10,7 @@ class ColumnInline(admin.TabularInline):
 
 @admin.register(Board)
 class BoardAdmin(admin.ModelAdmin):
-    list_display = ("title", "user", "updated_at")
+    list_display = ("title", "key", "user", "updated_at")
     search_fields = ("title",)
     inlines = [ColumnInline]
 
@@ -22,5 +22,12 @@ class ColumnAdmin(admin.ModelAdmin):
 
 @admin.register(Card)
 class CardAdmin(admin.ModelAdmin):
-    list_display = ("title", "column", "position", "updated_at")
+    list_display = ("title", "number", "issue_type", "priority", "column", "updated_at")
+    list_filter = ("issue_type", "priority")
     search_fields = ("title",)
+
+
+@admin.register(CardComment)
+class CardCommentAdmin(admin.ModelAdmin):
+    list_display = ("card", "user", "created_at")
+    search_fields = ("body", "card__title")
