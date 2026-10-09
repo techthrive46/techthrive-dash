@@ -1,0 +1,37 @@
+# Nightly pg_dump of the Neon database to S3 (kept 30 days by a bucket rule).
+# Restore: deploy/README.md.
+name: Backup database
+
+on:
+  schedule:
+    - cron: "30 20 * * *" # 02:00 IST
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Dump and upload
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BUCKET: ${{ vars.BACKUP_BUCKET }}
+        run: |
+          set -euo pipefail
+          FILE="techthrive-$(date -u +%Y-%m-%dT%H%MZ).dump"
+          # pg_dump must be at least the server's major version; 17 covers Neon's current versions.
+          docker run --rm -e DATABASE_URL postgres:17 \
+            sh -c 'pg_dump "$DATABASE_URL" --format=custom --no-owner --no-privileges' > "$FILE"
+          test -s "$FILE"
+          aws s3 cp "$FILE" "s3://$BUCKET/db/$FILE"
+          echo "Uploaded s3://$BUCKET/db/$FILE ($(du -h "$FILE" | cut -f1))"

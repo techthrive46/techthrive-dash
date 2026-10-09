@@ -1,0 +1,68 @@
+# Builds the backend image, runs migrations against Neon, and points the
+# Lambda function at the new image. One-time AWS setup: deploy/README.md.
+name: Deploy backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write # OIDC: assume the AWS deploy role without stored AWS keys
+  contents: read
+
+# Never run two deploys at once; let a running one finish.
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+env:
+  APP: techthrive-backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        run: |
+          IMAGE="${{ steps.ecr.outputs.registry }}/$APP:${{ github.sha }}"
+          # --provenance=false: Lambda rejects the multi-manifest images buildx makes by default.
+          docker build --platform linux/amd64 --provenance=false -t "$IMAGE" backend
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      # Before switching code, so the new code never runs against an old schema.
+      # Migrations are expected to be backward compatible with the running version.
+      - name: Run migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          docker run --rm --entrypoint python \
+            -e DATABASE_URL -e DEBUG=False -e SECRET_KEY=migrate-only \
+            "$IMAGE" manage.py migrate --noinput
+
+      - name: Update Lambda
+        run: |
+          aws lambda update-function-code --function-name "$APP" --image-uri "$IMAGE" > /dev/null
+          aws lambda wait function-updated-v2 --function-name "$APP"
+
+      - name: Smoke test
+        run: |
+          URL="$(aws lambda get-function-url-config --function-name "$APP" --query FunctionUrl --output text)"
+          curl -fsS --retry 5 --retry-all-errors --retry-delay 3 "${URL}api/health/"
