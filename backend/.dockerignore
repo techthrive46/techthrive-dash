@@ -1,0 +1,15 @@
+# Never bake local secrets or dev settings into the image: settings.py loads
+# .env at startup, so a copied .env would override production env vars.
+.env
+.env.*
+!.env.example
+
+venv/
+.venv/
+**/__pycache__/
+*.pyc
+db.sqlite3
+staticfiles/
+.cursor/
+.git/
+Makefile
