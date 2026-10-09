@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { MarkdownEditor, MarkdownView } from "@/components/ui/markdown-editor";
 import { api } from "@/lib/api";
 import type { MilestoneComment, User } from "@/lib/types";
 import { formatDateTime } from "@/lib/utils";
@@ -42,8 +42,12 @@ export function MilestoneComments({
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    await submitComment();
+  }
+
+  async function submitComment() {
     const trimmed = body.trim();
-    if (!trimmed) return;
+    if (!trimmed || submitting) return;
     setSubmitting(true);
     try {
       const comment = await api.createMilestoneComment(projectId, milestoneId, trimmed);
@@ -77,9 +81,7 @@ export function MilestoneComments({
                   <p className="text-xs font-medium text-[var(--foreground)]">
                     {comment.user.email}
                   </p>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-[var(--foreground)]">
-                    {comment.body}
-                  </p>
+                  <MarkdownView value={comment.body} className="mt-1 text-[var(--foreground)]" />
                   <p className="mt-1 font-mono text-[10px] text-[var(--muted)]">
                     {formatDateTime(comment.created_at)}
                   </p>
@@ -100,11 +102,13 @@ export function MilestoneComments({
       )}
 
       <form onSubmit={handleSubmit} className="space-y-2">
-        <Textarea
+        <MarkdownEditor
           value={body}
-          onChange={(e) => setBody(e.target.value)}
+          onChange={setBody}
+          onSubmit={() => void submitComment()}
           placeholder="Write a comment..."
-          rows={2}
+          aria-label="Write a comment"
+          className="[&_.md-content]:min-h-[3rem]"
         />
         <Button
           type="submit"

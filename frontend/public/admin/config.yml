@@ -11,20 +11,6 @@ public_folder: "/uploads"
 publish_mode: editorial_workflow
 
 collections:
-  - name: "docs"
-    label: "Docs"
-    folder: "frontend/content/docs"
-    create: true
-    slug: "{{slug}}"
-    format: "frontmatter"
-    fields:
-      - { label: "Title", name: "title", widget: "string" }
-      - { label: "Slug", name: "slug", widget: "string", pattern: ["^[a-z0-9-]+$", "Use lowercase letters, numbers, and hyphens only."] }
-      - { label: "Description", name: "description", widget: "text", required: false }
-      - { label: "Published At", name: "publishedAt", widget: "datetime" }
-      - { label: "Tags", name: "tags", widget: "list", required: false }
-      - { label: "Body", name: "body", widget: "markdown" }
-
   - name: "plans"
     label: "Plans"
     folder: "frontend/content/plans"

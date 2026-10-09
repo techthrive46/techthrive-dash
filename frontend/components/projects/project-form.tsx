@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { Board, Project, ProjectStatus } from "@/lib/types";
+import { SDLC_PHASES } from "@/lib/sdlc";
+import type { Board, CurrentPhase, Project } from "@/lib/types";
 import { FormEvent, useState } from "react";
 
 interface ProjectFormProps {
@@ -13,7 +14,7 @@ interface ProjectFormProps {
   onSubmit: (data: {
     name: string;
     description: string;
-    status: ProjectStatus;
+    current_phase: CurrentPhase;
     due_date: string | null;
     board: string | null;
   }) => Promise<void>;
@@ -30,8 +31,8 @@ export function ProjectForm({
 }: ProjectFormProps) {
   const [name, setName] = useState(initial?.name || "");
   const [description, setDescription] = useState(initial?.description || "");
-  const [status, setStatus] = useState<ProjectStatus>(
-    initial?.status || "planning",
+  const [currentPhase, setCurrentPhase] = useState<CurrentPhase>(
+    initial?.current_phase || "requirements",
   );
   const [dueDate, setDueDate] = useState(initial?.due_date || "");
   const [boardId, setBoardId] = useState(initial?.board || "");
@@ -44,7 +45,7 @@ export function ProjectForm({
       await onSubmit({
         name,
         description,
-        status,
+        current_phase: currentPhase,
         due_date: dueDate || null,
         board: boardId || null,
       });
@@ -67,16 +68,23 @@ export function ProjectForm({
         onChange={(e) => setDescription(e.target.value)}
         rows={3}
       />
-      <Select
-        label="Status"
-        value={status}
-        onChange={(e) => setStatus(e.target.value as ProjectStatus)}
-      >
-        <option value="planning">Planning</option>
-        <option value="active">Active</option>
-        <option value="on_hold">On Hold</option>
-        <option value="completed">Completed</option>
-      </Select>
+      <div className="space-y-1.5">
+        <Select
+          label="SDLC phase"
+          value={currentPhase}
+          onChange={(e) => setCurrentPhase(e.target.value as CurrentPhase)}
+        >
+          {SDLC_PHASES.map((phase) => (
+            <option key={phase.key} value={phase.key}>
+              {phase.number} · {phase.label}
+            </option>
+          ))}
+          <option value="completed">All phases complete</option>
+        </Select>
+        <p className="font-mono text-[10px] text-[var(--muted)]">
+          Earlier phases are marked done, this one in progress.
+        </p>
+      </div>
       <Input
         label="Due date"
         type="date"

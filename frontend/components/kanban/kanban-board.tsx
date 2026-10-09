@@ -1,6 +1,7 @@
 "use client";
 
-import { BoardHeader } from "@/components/kanban/board-header";
+import { BoardHeader, BoardToolbar } from "@/components/kanban/board-header";
+import { IssueDetail, type CardPatch } from "@/components/kanban/issue-detail";
 import { KanbanCardPreview } from "@/components/kanban/kanban-card";
 import {
   KanbanColumn as KanbanColumnView,
@@ -9,18 +10,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
-import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { EMPTY_FILTERS, matchesFilters, type BoardFilters } from "@/lib/jira";
 import {
   findCard,
   moveCardInColumns,
   reorderColumns,
   resolveColumnId,
 } from "@/lib/kanban-dnd";
-import { getColumnTheme, isCompletedColumn } from "@/lib/kanban-themes";
-import type { Board, CardPriority, KanbanCard, KanbanColumn } from "@/lib/types";
+import { isCompletedColumn } from "@/lib/kanban-themes";
+import type { Board, IssueType, KanbanCard, KanbanColumn, User } from "@/lib/types";
 import {
   CollisionDetection,
   DndContext,
@@ -38,27 +38,32 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
 import { AnimatePresence, motion } from "framer-motion";
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface KanbanBoardProps {
   boardId: string;
   onDeleteBoard?: () => void;
 }
 
+type SettingsDialog =
+  | { kind: "add-column" }
+  | { kind: "wip"; columnId: string }
+  | { kind: "key" }
+  | null;
+
 export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
   const [board, setBoard] = useState<Board | null>(null);
   const [columns, setColumns] = useState<KanbanColumn[]>([]);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeCard, setActiveCard] = useState<KanbanCard | null>(null);
   const [activeColumn, setActiveColumn] = useState<KanbanColumn | null>(null);
   const [loading, setLoading] = useState(true);
-  const [addCardColumnId, setAddCardColumnId] = useState<string | null>(null);
-  const [addColumnOpen, setAddColumnOpen] = useState(false);
-  const [newColumnName, setNewColumnName] = useState("");
-  const [cardTitle, setCardTitle] = useState("");
-  const [cardDescription, setCardDescription] = useState("");
-  const [cardPriority, setCardPriority] = useState<CardPriority>("medium");
-  const [cardDueDate, setCardDueDate] = useState("");
-  const [editCard, setEditCard] = useState<KanbanCard | null>(null);
+  const [filters, setFilters] = useState<BoardFilters>(EMPTY_FILTERS);
+  const [creatingInColumn, setCreatingInColumn] = useState<string | null>(null);
+  const [openCardId, setOpenCardId] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<SettingsDialog>(null);
+  const [dialogValue, setDialogValue] = useState("");
+  const [dialogError, setDialogError] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const colorSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -98,8 +103,27 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
   }
 
   useEffect(() => {
-    loadBoard().finally(() => setLoading(false));
+    Promise.all([loadBoard(), api.me().then(setCurrentUser)]).finally(() => setLoading(false));
   }, [boardId]);
+
+  const visibleCardsByColumn = useMemo(() => {
+    const map = new Map<string, KanbanCard[]>();
+    for (const column of columns) {
+      map.set(
+        column.id,
+        column.cards.filter((card) => matchesFilters(card, filters, currentUser?.id ?? null)),
+      );
+    }
+    return map;
+  }, [columns, filters, currentUser]);
+
+  const availableLabels = useMemo(
+    () =>
+      [...new Set(columns.flatMap((column) => column.cards.flatMap((card) => card.labels)))].sort(
+        (a, b) => a.localeCompare(b),
+      ),
+    [columns],
+  );
 
   function handleDragStart(event: DragStartEvent) {
     const type = event.active.data.current?.type;
@@ -209,60 +233,66 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
     void loadBoard();
   }
 
-  async function handleAddCard(event: FormEvent) {
-    event.preventDefault();
-    if (!addCardColumnId || !cardTitle.trim()) return;
-
-    await api.createCard({
-      column: addCardColumnId,
-      title: cardTitle.trim(),
-      description: cardDescription,
-      priority: cardPriority,
-      due_date: cardDueDate || null,
-    });
-
-    resetCardForm();
-    await loadBoard();
+  function replaceCard(updated: KanbanCard) {
+    setColumns((prev) =>
+      prev.map((column) => ({
+        ...column,
+        cards: column.cards.map((card) =>
+          card.id === updated.id ? { ...card, ...updated, comment_count: card.comment_count } : card,
+        ),
+      })),
+    );
   }
 
-  async function handleUpdateCard(event: FormEvent) {
-    event.preventDefault();
-    if (!editCard || !cardTitle.trim()) return;
-
-    await api.updateCard(editCard.id, {
-      title: cardTitle.trim(),
-      description: cardDescription,
-      priority: cardPriority,
-      due_date: cardDueDate || null,
-    });
-
-    resetCardForm();
-    await loadBoard();
+  async function handleCreateIssue(columnId: string, title: string, issueType: IssueType) {
+    const card = await api.createCard({ column: columnId, title, issue_type: issueType });
+    setColumns((prev) =>
+      prev.map((column) =>
+        column.id === columnId ? { ...column, cards: [...column.cards, card] } : column,
+      ),
+    );
   }
 
-  async function handleDeleteCard() {
-    if (!editCard || !confirm("Delete this card?")) return;
-    await api.deleteCard(editCard.id);
-    setEditCard(null);
-    await loadBoard();
+  async function handleUpdateCard(cardId: string, patch: CardPatch) {
+    const updated = await api.updateCard(cardId, patch);
+    if (patch.column) {
+      // Status changes move the card, so refetch to get the new ordering.
+      await loadBoard();
+    } else {
+      replaceCard(updated);
+    }
   }
 
-  async function handleAddColumn(event: FormEvent) {
-    event.preventDefault();
-    if (!newColumnName.trim()) return;
-    await api.createColumn(boardId, newColumnName.trim());
-    setNewColumnName("");
-    setAddColumnOpen(false);
-    await loadBoard();
+  async function handleDeleteCard(cardId: string) {
+    if (!confirm("Delete this issue? This can't be undone.")) return;
+    await api.deleteCard(cardId);
+    setOpenCardId(null);
+    setColumns((prev) =>
+      prev.map((column) => ({
+        ...column,
+        cards: column.cards.filter((card) => card.id !== cardId),
+      })),
+    );
+  }
+
+  function handleCommentCountChange(cardId: string, count: number) {
+    setColumns((prev) =>
+      prev.map((column) => ({
+        ...column,
+        cards: column.cards.map((card) =>
+          card.id === cardId ? { ...card, comment_count: count } : card,
+        ),
+      })),
+    );
   }
 
   async function handleSaveTitle(title: string) {
     const updated = await api.updateBoard(boardId, { title });
-    setBoard(updated);
+    setBoard((prev) => (prev ? { ...prev, title: updated.title } : prev));
   }
 
   async function handleDeleteColumn(columnId: string) {
-    if (!confirm("Remove this bucket? Cards in it will be deleted.")) return;
+    if (!confirm("Delete this column? Tickets in it will be deleted.")) return;
     await api.deleteColumn(boardId, columnId);
     await loadBoard();
   }
@@ -293,37 +323,58 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
     };
   }, []);
 
-  function resetCardForm() {
-    setAddCardColumnId(null);
-    setEditCard(null);
-    setCardTitle("");
-    setCardDescription("");
-    setCardPriority("medium");
-    setCardDueDate("");
+  function openDialog(next: NonNullable<SettingsDialog>) {
+    setDialogError(null);
+    if (next.kind === "wip") {
+      const column = columns.find((col) => col.id === next.columnId);
+      setDialogValue(column?.wip_limit?.toString() ?? "");
+    } else if (next.kind === "key") {
+      setDialogValue(board?.key ?? "");
+    } else {
+      setDialogValue("");
+    }
+    setDialog(next);
   }
 
-  function openEditCard(cardId: string) {
-    const found = findCard(columns, cardId);
-    if (!found) return;
-    setEditCard(found.card);
-    setCardTitle(found.card.title);
-    setCardDescription(found.card.description || "");
-    setCardPriority(found.card.priority || "medium");
-    setCardDueDate(found.card.due_date || "");
-  }
-
-  function openAddCard(columnId: string) {
-    resetCardForm();
-    setAddCardColumnId(columnId);
+  async function handleDialogSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!dialog) return;
+    setDialogError(null);
+    try {
+      if (dialog.kind === "add-column") {
+        if (!dialogValue.trim()) return;
+        await api.createColumn(boardId, dialogValue.trim());
+        await loadBoard();
+      } else if (dialog.kind === "wip") {
+        const value = dialogValue.trim() === "" ? null : Number(dialogValue);
+        if (value !== null && (!Number.isInteger(value) || value < 1)) {
+          setDialogError("Enter a whole number of 1 or more, or leave it empty for no limit.");
+          return;
+        }
+        await api.updateColumn(boardId, dialog.columnId, { wip_limit: value });
+        setColumns((prev) =>
+          prev.map((column) =>
+            column.id === dialog.columnId ? { ...column, wip_limit: value } : column,
+          ),
+        );
+      } else {
+        await api.updateBoard(boardId, { key: dialogValue.trim().toUpperCase() });
+        await loadBoard();
+      }
+      setDialog(null);
+    } catch (err) {
+      setDialogError(err instanceof Error ? err.message : "Something went wrong.");
+    }
   }
 
   if (loading) {
     return (
       <div className="px-6 pb-10 pt-8 md:px-8">
-        <Skeleton className="mb-6 h-10 w-64" />
+        <Skeleton className="mb-3 h-4 w-40" />
+        <Skeleton className="mb-6 h-9 w-72" />
         <div className="flex gap-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-80 w-[272px] shrink-0 rounded-2xl" />
+            <Skeleton key={i} className="h-80 w-[280px] shrink-0 rounded-lg" />
           ))}
         </div>
       </div>
@@ -336,31 +387,42 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
     );
   }
 
-  const activeColumnForTheme = activeCard
+  const activeColumnForCard = activeCard
     ? columns.find((column) => column.id === activeCard.column_id)
-    : activeColumn ?? columns[0];
-  const activeTheme = getColumnTheme(
-    activeColumnForTheme ?? { id: "default", color: "#64748b" },
-  );
-  const activeCompletedColumn = activeColumnForTheme
-    ? isCompletedColumn(activeColumnForTheme, columns)
+    : undefined;
+  const activeCompletedColumn = activeColumnForCard
+    ? isCompletedColumn(activeColumnForCard, columns)
     : false;
   const totalCards = columns.reduce((n, c) => n + c.cards.length, 0);
+  const matchCount = [...visibleCardsByColumn.values()].reduce((n, cards) => n + cards.length, 0);
   const columnIds = columns.map((col) => col.id);
+  const openCard = openCardId ? findCard(columns, openCardId)?.card ?? null : null;
+  const wipColumn =
+    dialog?.kind === "wip" ? columns.find((col) => col.id === dialog.columnId) : undefined;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-4 md:px-8">
       <BoardHeader
         title={board.title}
-        columnCount={columns.length}
-        cardCount={totalCards}
+        boardKey={board.key}
         linkedProjects={board.linked_projects}
         editingTitle={editingTitle}
         onStartEditTitle={() => setEditingTitle(true)}
         onCancelEditTitle={() => setEditingTitle(false)}
         onSaveTitle={handleSaveTitle}
-        onAddBucket={() => setAddColumnOpen(true)}
+        onCreateIssue={() => columns[0] && setCreatingInColumn(columns[0].id)}
+        onAddColumn={() => openDialog({ kind: "add-column" })}
+        onEditKey={() => openDialog({ kind: "key" })}
         onDeleteBoard={onDeleteBoard}
+      />
+
+      <BoardToolbar
+        filters={filters}
+        onChange={setFilters}
+        currentUser={currentUser}
+        availableLabels={availableLabels}
+        matchCount={matchCount}
+        totalCount={totalCards}
       />
 
       <motion.div
@@ -379,21 +441,35 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
         >
           <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
             <div className="kanban-board-scroll min-h-0 min-w-0 flex-1">
-              <div className="flex w-max min-h-full gap-3 pb-1 pr-1">
+              <div className="flex w-max min-h-full items-start gap-3 pb-1 pr-1">
                 <AnimatePresence mode="sync">
                   {columns.map((column, index) => (
                     <KanbanColumnView
                       key={column.id}
                       column={column}
                       allColumns={columns}
+                      visibleCards={visibleCardsByColumn.get(column.id) ?? []}
                       index={index}
-                      onAddCard={openAddCard}
-                      onCardClick={openEditCard}
+                      creating={creatingInColumn === column.id}
+                      onOpenCreate={setCreatingInColumn}
+                      onCloseCreate={() => setCreatingInColumn(null)}
+                      onCreateIssue={handleCreateIssue}
+                      onCardClick={setOpenCardId}
                       onColorChange={handleColumnColorChange}
+                      onEditWipLimit={(columnId) => openDialog({ kind: "wip", columnId })}
                       onDeleteColumn={columns.length > 1 ? handleDeleteColumn : undefined}
                     />
                   ))}
                 </AnimatePresence>
+                <button
+                  type="button"
+                  onClick={() => openDialog({ kind: "add-column" })}
+                  aria-label="Add column"
+                  title="Add column"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-dashed border-[var(--border-strong)] text-lg text-[var(--muted)] transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-light)] hover:text-[var(--accent)]"
+                >
+                  +
+                </button>
               </div>
             </div>
           </SortableContext>
@@ -405,9 +481,8 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
             {activeCard ? (
               <KanbanCardPreview
                 card={activeCard}
-                theme={activeTheme}
                 isCompletedColumn={activeCompletedColumn}
-                className="w-[248px] rotate-1 shadow-xl ring-2 ring-[var(--accent)]/15"
+                className="w-[264px] rotate-2 shadow-xl ring-2 ring-[var(--accent)]/25"
               />
             ) : activeColumn ? (
               <KanbanColumnPreview
@@ -419,132 +494,80 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
         </DndContext>
       </motion.div>
 
-      <CardFormModal
-        open={Boolean(addCardColumnId)}
-        onClose={resetCardForm}
-        title="New page"
-        cardTitle={cardTitle}
-        setCardTitle={setCardTitle}
-        cardDescription={cardDescription}
-        setCardDescription={setCardDescription}
-        cardPriority={cardPriority}
-        setCardPriority={setCardPriority}
-        cardDueDate={cardDueDate}
-        setCardDueDate={setCardDueDate}
-        onSubmit={handleAddCard}
-        submitLabel="Create"
-      />
-
-      <CardFormModal
-        open={Boolean(editCard)}
-        onClose={resetCardForm}
-        title={editCard?.milestone_id ? "Project milestone" : "Edit page"}
-        cardTitle={cardTitle}
-        setCardTitle={setCardTitle}
-        cardDescription={cardDescription}
-        setCardDescription={setCardDescription}
-        cardPriority={cardPriority}
-        setCardPriority={setCardPriority}
-        cardDueDate={cardDueDate}
-        setCardDueDate={setCardDueDate}
-        onSubmit={handleUpdateCard}
-        submitLabel="Save"
-        onDelete={editCard?.milestone_id ? undefined : handleDeleteCard}
-        isMilestone={Boolean(editCard?.milestone_id)}
-        projectName={editCard?.project_name}
-      />
+      <AnimatePresence>
+        {openCard && (
+          <IssueDetail
+            key={openCard.id}
+            card={openCard}
+            boardKey={board.key}
+            columns={columns}
+            currentUser={currentUser}
+            onClose={() => setOpenCardId(null)}
+            onUpdate={(patch) => handleUpdateCard(openCard.id, patch)}
+            onDelete={openCard.milestone_id ? undefined : () => handleDeleteCard(openCard.id)}
+            onCommentCountChange={(count) => handleCommentCountChange(openCard.id, count)}
+          />
+        )}
+      </AnimatePresence>
 
       <Modal
-        open={addColumnOpen}
-        onClose={() => setAddColumnOpen(false)}
-        title="Add bucket"
+        open={dialog !== null}
+        onClose={() => setDialog(null)}
+        title={
+          dialog?.kind === "wip"
+            ? `Column limit · ${wipColumn?.name ?? ""}`
+            : dialog?.kind === "key"
+              ? "Change issue key"
+              : "Add column"
+        }
       >
-        <form onSubmit={handleAddColumn} className="space-y-4">
-          <Input
-            label="Bucket name"
-            value={newColumnName}
-            onChange={(e) => setNewColumnName(e.target.value)}
-            placeholder="e.g. In review, Blocked..."
-            required
-            autoFocus
-          />
+        <form onSubmit={handleDialogSubmit} className="space-y-4">
+          {dialog?.kind === "wip" ? (
+            <Input
+              label="Maximum Tickets"
+              type="number"
+              min={1}
+              value={dialogValue}
+              onChange={(e) => setDialogValue(e.target.value)}
+              placeholder="No limit"
+              autoFocus
+            />
+          ) : dialog?.kind === "key" ? (
+            <Input
+              label="Key"
+              value={dialogValue}
+              onChange={(e) => setDialogValue(e.target.value.toUpperCase())}
+              maxLength={10}
+              placeholder="e.g. TT"
+              required
+              autoFocus
+            />
+          ) : (
+            <Input
+              label="Column name"
+              value={dialogValue}
+              onChange={(e) => setDialogValue(e.target.value)}
+              placeholder="e.g. In Review, Blocked..."
+              required
+              autoFocus
+            />
+          )}
+          <p className="font-mono text-[11px] text-[var(--muted)]">
+            {dialog?.kind === "wip"
+              ? "The column turns red when it holds more tickets than this. Leave empty for no limit."
+              : dialog?.kind === "key"
+                ? `Every ticket on this board is renamed, e.g. ${dialogValue || "KEY"}-1. 2-10 letters or digits, starting with a letter.`
+                : "New columns are added to the right of the board."}
+          </p>
+          {dialogError && <p className="text-xs text-red-500">{dialogError}</p>}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={() => setAddColumnOpen(false)}>
+            <Button type="button" variant="secondary" onClick={() => setDialog(null)}>
               Cancel
             </Button>
-            <Button type="submit">Add bucket</Button>
+            <Button type="submit">Save</Button>
           </div>
         </form>
       </Modal>
     </div>
-  );
-}
-
-function CardFormModal({
-  open,
-  onClose,
-  title,
-  cardTitle,
-  setCardTitle,
-  cardDescription,
-  setCardDescription,
-  cardPriority,
-  setCardPriority,
-  cardDueDate,
-  setCardDueDate,
-  onSubmit,
-  submitLabel,
-  onDelete,
-  isMilestone,
-  projectName,
-}: {
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  cardTitle: string;
-  setCardTitle: (v: string) => void;
-  cardDescription: string;
-  setCardDescription: (v: string) => void;
-  cardPriority: CardPriority;
-  setCardPriority: (v: CardPriority) => void;
-  cardDueDate: string;
-  setCardDueDate: (v: string) => void;
-  onSubmit: (e: FormEvent) => void;
-  submitLabel: string;
-  onDelete?: () => void;
-  isMilestone?: boolean;
-  projectName?: string | null;
-}) {
-  return (
-    <Modal open={open} onClose={onClose} title={title}>
-      <form onSubmit={onSubmit} className="space-y-4">
-        {isMilestone && (
-          <p className="rounded-lg bg-[var(--accent-light)] px-3 py-2 text-xs text-[var(--accent)]">
-            Linked to {projectName || "project"} — drag between buckets to update status.
-          </p>
-        )}
-        <Input label="Title" value={cardTitle} onChange={(e) => setCardTitle(e.target.value)} required />
-        {!isMilestone && (
-          <Textarea label="Description" value={cardDescription} onChange={(e) => setCardDescription(e.target.value)} rows={3} />
-        )}
-        {!isMilestone && (
-          <Select label="Priority" value={cardPriority} onChange={(e) => setCardPriority(e.target.value as CardPriority)}>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-          </Select>
-        )}
-        <Input label="Due date" type="date" value={cardDueDate} onChange={(e) => setCardDueDate(e.target.value)} />
-        <div className={`flex ${onDelete ? "justify-between" : "justify-end"} gap-2`}>
-          {onDelete && (
-            <Button type="button" variant="danger" onClick={onDelete}>Delete</Button>
-          )}
-          <div className="flex gap-2">
-            <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-            <Button type="submit">{submitLabel}</Button>
-          </div>
-        </div>
-      </form>
-    </Modal>
   );
 }

@@ -10,4 +10,5 @@ urlpatterns = [
     path("api/projects/", include("projects.urls")),
     path("api/boards/", include("kanban.urls")),
     path("api/dashboard/", include("dashboard.urls")),
+    path("api/docs/", include("docs.urls")),
 ]

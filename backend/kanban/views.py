@@ -1,6 +1,8 @@
 from django.db import transaction
-from django.db.models import Count, Prefetch
+from django.db.models import Count, Max, Prefetch
+from django.shortcuts import get_object_or_404
 from rest_framework import generics, status, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -8,16 +10,26 @@ from rest_framework.views import APIView
 
 from projects.models import Project
 
-from .models import Board, Card, Column
+from .models import Board, Card, CardComment, Column
 from .serializers import (
     BoardCreateSerializer,
     BoardDetailSerializer,
     BoardListSerializer,
+    CardCommentSerializer,
     CardSerializer,
     ColumnCreateSerializer,
     ColumnSerializer,
     ReorderSerializer,
 )
+
+
+def annotated_cards():
+    return (
+        Card.objects.select_related("column__board", "project", "milestone", "assignee")
+        .annotate(comment_count=Count("comments"))
+        # The aggregate drops Meta.ordering, so restore it explicitly.
+        .order_by("position")
+    )
 
 
 class BoardViewSet(viewsets.ModelViewSet):
@@ -31,7 +43,7 @@ class BoardViewSet(viewsets.ModelViewSet):
                 card_count=Count("columns__cards", distinct=True),
             )
         return qs.prefetch_related(
-            Prefetch("columns__cards", queryset=Card.objects.select_related("project", "milestone")),
+            Prefetch("columns__cards", queryset=annotated_cards()),
             "linked_projects",
             "project",
         )
@@ -110,7 +122,7 @@ class BoardViewSet(viewsets.ModelViewSet):
             for card in moved_milestone_cards:
                 sync_card_milestone_status(card)
 
-        board.refresh_from_db()
+        board = self.get_queryset().get(pk=board.pk)
         return Response(BoardDetailSerializer(board, context={"request": request}).data)
 
 
@@ -160,23 +172,33 @@ class CardDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Card.objects.filter(column__board__user=self.request.user)
+        return annotated_cards().filter(column__board__user=self.request.user)
 
     def perform_update(self, serializer):
-        project_id = self.request.data.get("project")
-        project = None
-        if project_id:
-            project = Project.objects.filter(
-                id=project_id,
-                user=self.request.user,
-            ).first()
-        card = serializer.instance
-        old_column_id = card.column_id
-        card = serializer.save(project=project)
-        if card.column_id != old_column_id:
-            from .column_moves import apply_card_to_column
+        from .column_moves import apply_card_to_column
+        from .sync import sync_card_milestone_status
 
-            apply_card_to_column(card, card.column)
+        save_kwargs = {}
+        if "project" in self.request.data:
+            project_id = self.request.data.get("project")
+            save_kwargs["project"] = (
+                Project.objects.filter(id=project_id, user=self.request.user).first()
+                if project_id
+                else None
+            )
+        # Column changes go through apply_card_to_column so timestamps,
+        # position and the linked milestone's status stay in sync.
+        new_column = serializer.validated_data.pop("column", None)
+        card = serializer.save(**save_kwargs)
+        if new_column and new_column.id != card.column_id:
+            max_pos = new_column.cards.aggregate(max_pos=Max("position"))["max_pos"]
+            apply_card_to_column(
+                card,
+                new_column,
+                position=(max_pos + 1) if max_pos is not None else 0,
+                columns=list(new_column.board.columns.all()),
+            )
+            sync_card_milestone_status(card)
         if card.milestone_id:
             milestone = card.milestone
             milestone.title = card.title
@@ -210,3 +232,40 @@ class CardCreateView(generics.CreateAPIView):
             column,
             columns=list(column.board.columns.all()),
         )
+
+
+class CardCommentListCreateView(generics.ListCreateAPIView):
+    serializer_class = CardCommentSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+
+    def get_queryset(self):
+        return CardComment.objects.filter(
+            card_id=self.kwargs["card_id"],
+            card__column__board__user=self.request.user,
+        ).select_related("user")
+
+    def perform_create(self, serializer):
+        card = get_object_or_404(
+            Card,
+            id=self.kwargs["card_id"],
+            column__board__user=self.request.user,
+        )
+        serializer.save(user=self.request.user, card=card)
+
+
+class CardCommentDetailView(generics.DestroyAPIView):
+    serializer_class = CardCommentSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_url_kwarg = "comment_id"
+
+    def get_queryset(self):
+        return CardComment.objects.filter(
+            card_id=self.kwargs["card_id"],
+            card__column__board__user=self.request.user,
+        )
+
+    def check_object_permissions(self, request, obj):
+        super().check_object_permissions(request, obj)
+        if obj.user_id != request.user.id:
+            raise PermissionDenied("You can only delete your own comments.")

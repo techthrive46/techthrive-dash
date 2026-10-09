@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
-import type { Board, Project } from "@/lib/types";
+import type { Board, CurrentPhase, Project } from "@/lib/types";
 import { useEffect, useState } from "react";
 
 export default function ProjectsPage() {
@@ -33,7 +33,7 @@ export default function ProjectsPage() {
   async function handleCreate(data: {
     name: string;
     description: string;
-    status: Project["status"];
+    current_phase: CurrentPhase;
     due_date: string | null;
     board: string | null;
   }) {

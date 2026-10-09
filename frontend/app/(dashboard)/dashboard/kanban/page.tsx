@@ -76,9 +76,14 @@ export default function KanbanListPage() {
             {boards.map((board, index) => (
               <Link key={board.id} href={`/dashboard/kanban/${board.id}`}>
                 <Card hover delay={index * 0.06}>
-                  <CardTitle>{board.title}</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded bg-[var(--accent)] px-1.5 py-0.5 font-mono text-[10px] font-bold text-white">
+                      {board.key}
+                    </span>
+                    <CardTitle>{board.title}</CardTitle>
+                  </div>
                   <CardDescription>
-                    {board.column_count ?? 0} columns · {board.card_count ?? 0} cards
+                    {board.column_count ?? 0} columns · {board.card_count ?? 0} tickets
                   </CardDescription>
                   <div className="mt-4 flex gap-1">
                     {Array.from({ length: Math.min(board.column_count ?? 3, 5) }).map((_, i) => (

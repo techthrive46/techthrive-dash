@@ -1,15 +1,31 @@
+from accounts.serializers import UserSerializer
 from rest_framework import serializers
 
 from projects.models import Project
 
 import re
 
-from .models import Board, Card, Column, DEFAULT_COLUMNS, DEFAULT_COLUMN_COLORS
+from .models import Board, Card, CardComment, Column, DEFAULT_COLUMNS, DEFAULT_COLUMN_COLORS
 
 HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+BOARD_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]{1,9}$")
+MAX_LABELS = 10
+MAX_LABEL_LENGTH = 30
+
+
+class CardCommentSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+
+    class Meta:
+        model = CardComment
+        fields = ("id", "body", "user", "created_at", "updated_at")
+        read_only_fields = ("id", "user", "created_at", "updated_at")
 
 
 class CardSerializer(serializers.ModelSerializer):
+    issue_key = serializers.CharField(read_only=True)
+    assignee_email = serializers.EmailField(source="assignee.email", read_only=True, allow_null=True)
+    comment_count = serializers.IntegerField(read_only=True, default=0)
     column_id = serializers.UUIDField(source="column.id", read_only=True)
     project_id = serializers.UUIDField(source="project.id", read_only=True, allow_null=True)
     milestone_id = serializers.UUIDField(source="milestone.id", read_only=True, allow_null=True)
@@ -19,10 +35,18 @@ class CardSerializer(serializers.ModelSerializer):
         model = Card
         fields = (
             "id",
+            "number",
+            "issue_key",
+            "issue_type",
             "title",
             "description",
             "priority",
             "due_date",
+            "story_points",
+            "labels",
+            "assignee",
+            "assignee_email",
+            "comment_count",
             "column_entered_at",
             "completed_at",
             "position",
@@ -36,7 +60,47 @@ class CardSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "milestone", "column_entered_at", "completed_at", "created_at", "updated_at")
+        read_only_fields = (
+            "id",
+            "number",
+            "milestone",
+            "column_entered_at",
+            "completed_at",
+            "created_at",
+            "updated_at",
+        )
+
+    def validate_column(self, column):
+        user = self.context["request"].user
+        if column.board.user_id != user.id:
+            raise serializers.ValidationError("Column not found.")
+        if self.instance and column.board_id != self.instance.column.board_id:
+            raise serializers.ValidationError("Issues can only move within their board.")
+        return column
+
+    def validate_assignee(self, assignee):
+        # Boards are single-owner, so an issue is either yours or unassigned.
+        if assignee is not None and assignee.id != self.context["request"].user.id:
+            raise serializers.ValidationError("You can only assign issues to yourself.")
+        return assignee
+
+    def validate_labels(self, labels):
+        if not isinstance(labels, list) or not all(isinstance(label, str) for label in labels):
+            raise serializers.ValidationError("Labels must be a list of strings.")
+        cleaned = []
+        for label in labels:
+            label = label.strip()
+            if not label:
+                continue
+            if len(label) > MAX_LABEL_LENGTH:
+                raise serializers.ValidationError(
+                    f"Labels can be at most {MAX_LABEL_LENGTH} characters."
+                )
+            if label.lower() not in (existing.lower() for existing in cleaned):
+                cleaned.append(label)
+        if len(cleaned) > MAX_LABELS:
+            raise serializers.ValidationError(f"An issue can have at most {MAX_LABELS} labels.")
+        return cleaned
 
     def validate_project(self, project):
         if project is None:
@@ -58,11 +122,20 @@ class ColumnSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Column
-        fields = ("id", "name", "color", "position", "cards")
+        fields = ("id", "name", "color", "position", "wip_limit", "cards")
         read_only_fields = ("id",)
 
     def validate_color(self, value):
         return validate_hex_color(value)
+
+
+def validate_board_key(value):
+    value = value.strip().upper()
+    if not BOARD_KEY_RE.match(value):
+        raise serializers.ValidationError(
+            "Key must be 2-10 letters or digits and start with a letter."
+        )
+    return value
 
 
 class LinkedProjectSerializer(serializers.ModelSerializer):
@@ -81,6 +154,7 @@ class BoardListSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "title",
+            "key",
             "project",
             "project_id",
             "column_count",
@@ -101,6 +175,7 @@ class BoardDetailSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "title",
+            "key",
             "project",
             "project_id",
             "linked_projects",
@@ -109,6 +184,9 @@ class BoardDetailSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("id", "created_at", "updated_at")
+
+    def validate_key(self, value):
+        return validate_board_key(value)
 
     def validate_project(self, project):
         if project is None:
@@ -122,8 +200,12 @@ class BoardDetailSerializer(serializers.ModelSerializer):
 class BoardCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Board
-        fields = ("id", "title", "project")
+        fields = ("id", "title", "key", "project")
         read_only_fields = ("id",)
+        extra_kwargs = {"key": {"required": False}}
+
+    def validate_key(self, value):
+        return validate_board_key(value) if value else value
 
     def create(self, validated_data):
         board = Board.objects.create(**validated_data)
@@ -140,7 +222,7 @@ class BoardCreateSerializer(serializers.ModelSerializer):
 class ColumnCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Column
-        fields = ("id", "name", "color", "position")
+        fields = ("id", "name", "color", "position", "wip_limit")
         read_only_fields = ("id",)
 
     def validate_color(self, value):
