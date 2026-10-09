@@ -63,8 +63,8 @@ Redeploy after adding these.
 | Route | Description |
 |-------|-------------|
 | `/studio` | Sanity Studio (CMS admin) |
-| `/docs` | Docs listing (fetched from Sanity) |
-| `/docs/[slug]` | Doc detail page |
+| `/docs` | Documents home (in-app editor, not Sanity) |
+| `/docs/[id]` | Document editor |
 | `/plans` | Plans listing (fetched from Sanity) |
 | `/plans/[slug]` | Plan detail page |
 
@@ -84,11 +84,11 @@ Redeploy after adding these.
 
 ## Migrating from Markdown
 
-The old markdown files in `content/docs` and `content/plans` can be:
+The old markdown files in `content/plans` can be:
 1. Manually re-created in Sanity Studio (copy/paste content), or
 2. Left as-is if you want to keep them for reference
 
-Once you have content in Sanity, the `/docs` and `/plans` pages will automatically fetch from Sanity instead of markdown.
+Once you have content in Sanity, the `/plans` page will automatically fetch from Sanity instead of markdown.
 
 ## Free Tier Limits
 

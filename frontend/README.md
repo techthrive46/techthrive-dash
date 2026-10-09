@@ -43,8 +43,8 @@ Open [http://localhost:3000](http://localhost:3000).
 | `/dashboard/projects/[id]` | Project detail + milestones |
 | `/dashboard/kanban` | Board list |
 | `/dashboard/kanban/[id]` | Kanban board with drag-and-drop |
-| `/docs` | CMS-powered docs listing |
-| `/docs/[slug]` | Doc detail page |
+| `/docs` | Documents home (in-app, Google Docs-style editor) |
+| `/docs/[id]` | Document editor (autosaves to the backend) |
 | `/plans` | CMS-powered plans listing |
 | `/plans/[slug]` | Plan detail page |
 | `/admin` | Decap CMS admin |
@@ -102,8 +102,8 @@ Visit `/studio` to create Docs and Plans. Content is stored in Sanity's cloud an
 | Route | Description |
 |-------|-------------|
 | `/studio` | Sanity Studio (CMS admin) |
-| `/docs` | CMS-powered docs listing |
-| `/docs/[slug]` | Doc detail page |
+| `/docs` | Documents home (in-app, Google Docs-style editor) |
+| `/docs/[id]` | Document editor (autosaves to the backend) |
 | `/plans` | CMS-powered plans listing |
 | `/plans/[slug]` | Plan detail page |
 
@@ -122,13 +122,12 @@ Visit `/studio` to create Docs and Plans. Content is stored in Sanity's cloud an
 
 ### Migration from markdown
 
-The old markdown files in `content/docs` and `content/plans` can be migrated to Sanity manually via the Studio, or removed if no longer needed.
+The old markdown files in `content/plans` can be migrated to Sanity manually via the Studio, or removed if no longer needed.
 
 ## Decap CMS (Docs + Plans)
 
 This project includes Decap CMS configured for Markdown-backed content:
 
-- Docs collection: `content/docs/*.md`
 - Plans collection: `content/plans/*.md`
 - Admin UI: `/admin` (`public/admin/index.html`)
 - Config: `public/admin/config.yml`
@@ -152,7 +151,7 @@ This project includes Decap CMS configured for Markdown-backed content:
 
 For local development, either:
 
-- Edit markdown files directly in `content/docs` and `content/plans`, or
+- Edit markdown files directly in `content/plans`, or
 - Temporarily add `local_backend: true` to `config.yml`, then run:
 
 ```bash

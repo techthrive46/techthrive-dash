@@ -74,12 +74,6 @@ export function getColumnThemeById(columnId: string): ColumnTheme {
   return getColumnTheme({ id: columnId });
 }
 
-export const PRIORITY_STYLES = {
-  low: "bg-[var(--surface-hover)] text-[var(--muted)] ring-1 ring-[var(--border)]",
-  medium: "bg-[var(--surface-subtle)]/80 text-[var(--foreground)] ring-1 ring-[var(--border-strong)]/50",
-  high: "bg-fuchsia-500/15 text-fuchsia-400 ring-1 ring-fuchsia-500/30",
-} as const;
-
 export function formatDueLabel(dueDate: string | null): string | null {
   if (!dueDate) return null;
   const due = new Date(dueDate + "T00:00:00");
@@ -106,23 +100,4 @@ export function isCompletedColumn(
   const sorted = [...allColumns].sort((a, b) => a.position - b.position);
   const index = sorted.findIndex((item) => item.id === column.id);
   return index === sorted.length - 1 && sorted.length > 1;
-}
-
-export function formatCardStatusLabel(
-  card: {
-    due_date: string | null;
-    completed_at: string | null;
-    column_entered_at: string | null;
-  },
-  isCompleted: boolean,
-  formatDate: (date: string | null | undefined) => string,
-): string | null {
-  if (isCompleted) {
-    const completedAt = card.completed_at || card.column_entered_at;
-    if (completedAt) {
-      return `Completed ${formatDate(completedAt)}`;
-    }
-    return null;
-  }
-  return formatDueLabel(card.due_date);
 }

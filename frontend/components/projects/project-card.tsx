@@ -3,7 +3,8 @@
 import { MilestoneProgressBar } from "@/components/projects/milestone-progress";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
-import type { Project, ProjectStatus } from "@/lib/types";
+import { SDLC_PHASES, SDLC_PHASE_BY_KEY, getCurrentPhaseKey } from "@/lib/sdlc";
+import type { Project, ProjectPhaseSummary, ProjectStatus } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 import Link from "next/link";
 
@@ -20,6 +21,42 @@ const statusLabel: Record<ProjectStatus, string> = {
   on_hold: "on_hold",
   completed: "done",
 };
+
+function PhaseStrip({ phases }: { phases: ProjectPhaseSummary[] }) {
+  const statusByKey = new Map(phases.map((phase) => [phase.key, phase.status]));
+  const currentKey = getCurrentPhaseKey(phases);
+  const current = currentKey ? SDLC_PHASE_BY_KEY[currentKey] : null;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="tech-label">sdlc</span>
+        {current && (
+          <span className="font-mono text-[10px] font-medium" style={{ color: current.color }}>
+            {current.number} · {current.label}
+          </span>
+        )}
+      </div>
+      <div className="mt-1.5 flex gap-1" aria-hidden>
+        {SDLC_PHASES.map((phase) => {
+          const status = statusByKey.get(phase.key) ?? "not_started";
+          return (
+            <span
+              key={phase.key}
+              title={`${phase.label}: ${status.replace("_", " ")}`}
+              className="h-1.5 flex-1 rounded-full"
+              style={{
+                backgroundColor:
+                  status === "not_started" ? "var(--surface-subtle)" : phase.color,
+                opacity: status === "in_progress" ? 0.45 : 1,
+              }}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export function ProjectCard({
   project,
@@ -49,6 +86,12 @@ export function ProjectCard({
           <CardDescription className="line-clamp-2 normal-case">
             {project.description}
           </CardDescription>
+        )}
+
+        {project.phases && project.phases.length > 0 && (
+          <div className="mt-4">
+            <PhaseStrip phases={project.phases} />
+          </div>
         )}
 
         <div className="mt-4">

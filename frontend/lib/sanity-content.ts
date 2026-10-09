@@ -2,7 +2,7 @@ import { escapeHTML, toHTML } from "@portabletext/to-html";
 import { PortableTextBlock } from "sanity";
 
 import { client } from "@/sanity/lib/client";
-import { SanityDoc, SanityPlan } from "@/sanity/lib/types";
+import { SanityPlan } from "@/sanity/lib/types";
 
 function portableTextToHtml(body: PortableTextBlock[]): string {
   return toHTML(body, {
@@ -17,72 +17,6 @@ function portableTextToHtml(body: PortableTextBlock[]): string {
       },
     },
   });
-}
-
-export async function getAllDocs(): Promise<
-  Array<{
-    title: string;
-    slug: string;
-    description: string;
-    tags: string[];
-    publishedAt: string;
-    html: string;
-  }>
-> {
-  if (!client) {
-    throw new Error("Sanity client not configured");
-  }
-
-  const docs: SanityDoc[] = await client.fetch(
-    `*[_type == "doc"] | order(publishedAt desc) {
-      _id,
-      title,
-      slug,
-      description,
-      tags,
-      publishedAt,
-      body
-    }`,
-  );
-
-  return docs.map((doc) => ({
-    title: doc.title,
-    slug: doc.slug.current,
-    description: doc.description || "",
-    tags: doc.tags || [],
-    publishedAt: doc.publishedAt,
-    html: portableTextToHtml(doc.body),
-  }));
-}
-
-export async function getDocBySlug(slug: string) {
-  if (!client) {
-    throw new Error("Sanity client not configured");
-  }
-
-  const doc: SanityDoc | null = await client.fetch(
-    `*[_type == "doc" && slug.current == $slug][0] {
-      _id,
-      title,
-      slug,
-      description,
-      tags,
-      publishedAt,
-      body
-    }`,
-    { slug },
-  );
-
-  if (!doc) return null;
-
-  return {
-    title: doc.title,
-    slug: doc.slug.current,
-    description: doc.description || "",
-    tags: doc.tags || [],
-    publishedAt: doc.publishedAt,
-    html: portableTextToHtml(doc.body),
-  };
 }
 
 export async function getAllPlans(): Promise<

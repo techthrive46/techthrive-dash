@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "projects",
     "kanban",
     "dashboard",
+    "docs",
 ]
 
 MIDDLEWARE = [
