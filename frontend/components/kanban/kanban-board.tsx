@@ -442,7 +442,7 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
         onCreateIssue={() => columns[0] && setCreatingInColumn(columns[0].id)}
         onAddColumn={() => openDialog({ kind: "add-column" })}
         onEditKey={() => openDialog({ kind: "key" })}
-        onDeleteBoard={onDeleteBoard}
+        onDeleteBoard={board.is_owner ? onDeleteBoard : undefined}
       />
 
       <BoardToolbar
@@ -530,6 +530,7 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
             card={openCard}
             boardKey={board.key}
             columns={columns}
+            members={board.members ?? []}
             currentUser={currentUser}
             onClose={() => setOpenCardId(null)}
             onUpdate={(patch) => handleUpdateCard(openCard.id, patch)}

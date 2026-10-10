@@ -11,6 +11,8 @@ import { FormEvent, useState } from "react";
 interface ProjectFormProps {
   initial?: Partial<Project>;
   boards?: Board[];
+  /** Only a project's owner can change which board it shares with members. */
+  canChangeBoard?: boolean;
   onSubmit: (data: {
     name: string;
     description: string;
@@ -25,6 +27,7 @@ interface ProjectFormProps {
 export function ProjectForm({
   initial,
   boards = [],
+  canChangeBoard = true,
   onSubmit,
   onCancel,
   submitLabel = "Save",
@@ -92,18 +95,26 @@ export function ProjectForm({
         onChange={(e) => setDueDate(e.target.value)}
       />
       {boards.length > 0 && (
-        <Select
-          label="Linked board"
-          value={boardId}
-          onChange={(e) => setBoardId(e.target.value)}
-        >
-          <option value="">None</option>
-          {boards.map((board) => (
-            <option key={board.id} value={board.id}>
-              {board.title}
-            </option>
-          ))}
-        </Select>
+        <div className="space-y-1.5">
+          <Select
+            label="Linked board"
+            value={boardId}
+            onChange={(e) => setBoardId(e.target.value)}
+            disabled={!canChangeBoard}
+          >
+            <option value="">None</option>
+            {boards.map((board) => (
+              <option key={board.id} value={board.id}>
+                {board.title}
+              </option>
+            ))}
+          </Select>
+          <p className="font-mono text-[10px] text-[var(--muted)]">
+            {canChangeBoard
+              ? "Project members can also see the linked board."
+              : "Only the project owner can change the linked board."}
+          </p>
+        </div>
       )}
       <div className="flex justify-end gap-2 pt-2">
         <Button type="button" variant="secondary" onClick={onCancel}>

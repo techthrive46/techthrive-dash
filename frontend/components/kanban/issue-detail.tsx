@@ -33,6 +33,8 @@ interface IssueDetailProps {
   card: KanbanCard;
   boardKey: string;
   columns: KanbanColumn[];
+  /** People the issue can be assigned to. */
+  members: User[];
   currentUser: User | null;
   onClose: () => void;
   onUpdate: (patch: CardPatch) => Promise<void>;
@@ -218,6 +220,7 @@ export function IssueDetail({
   card,
   boardKey,
   columns,
+  members,
   currentUser,
   onClose,
   onUpdate,
@@ -453,23 +456,25 @@ export function IssueDetail({
               </p>
               <div className="px-3 py-1">
                 <DetailRow label="Assignee">
-                  <div className="flex items-center gap-2 px-2 py-1">
+                  <div className="flex items-center gap-1 pl-2">
                     <Avatar email={card.assignee_email} size={24} />
-                    <span className="truncate text-sm text-[var(--foreground)]">
-                      {card.assignee_email ?? "Unassigned"}
-                    </span>
-                  </div>
-                  {currentUser && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void save({ assignee: card.assignee === currentUser.id ? null : currentUser.id })
+                    <select
+                      value={card.assignee ?? ""}
+                      onChange={(e) =>
+                        void save({ assignee: e.target.value ? Number(e.target.value) : null })
                       }
-                      className="px-2 text-xs font-medium text-[var(--accent)] hover:underline"
+                      aria-label="Assignee"
+                      className={FIELD_CLASS}
                     >
-                      {card.assignee === currentUser.id ? "Unassign" : "Assign to me"}
-                    </button>
-                  )}
+                      <option value="">Unassigned</option>
+                      {members.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.email}
+                          {member.id === currentUser?.id ? " (you)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </DetailRow>
                 <DetailRow label="Priority">
                   <div className="flex items-center gap-1 pl-2">

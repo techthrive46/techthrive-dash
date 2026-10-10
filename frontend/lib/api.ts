@@ -92,9 +92,14 @@ async function apiFetch<T>(
     let message = "Request failed";
     try {
       const errorData = await response.json();
+      // DRF field errors look like {"email": ["No account uses this email."]}.
+      const firstFieldError = Object.values(errorData)
+        .flat()
+        .find((value) => typeof value === "string");
       message =
         errorData.detail ||
         errorData.non_field_errors?.[0] ||
+        firstFieldError ||
         JSON.stringify(errorData);
     } catch {
       message = response.statusText;
@@ -164,6 +169,15 @@ export const api = {
 
   deleteProject: (id: string) =>
     apiFetch<void>(`/api/projects/${id}/`, { method: "DELETE" }),
+
+  addProjectMember: (projectId: string, email: string) =>
+    apiFetch<User>(`/api/projects/${projectId}/members/`, {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
+  removeProjectMember: (projectId: string, userId: number) =>
+    apiFetch<void>(`/api/projects/${projectId}/members/${userId}/`, { method: "DELETE" }),
 
   getMilestones: async (projectId: string) => {
     const data = await apiFetch<PaginatedResponse<Milestone> | Milestone[]>(

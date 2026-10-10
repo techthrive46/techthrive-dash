@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from projects.models import Project
+from projects.access import accessible_boards, accessible_projects
 
 from .models import Board, Card, CardComment, Column
 from .serializers import (
@@ -36,12 +36,12 @@ class BoardViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        qs = Board.objects.filter(user=self.request.user)
+        qs = accessible_boards(self.request.user).select_related("user")
         if self.action == "list":
             return qs.annotate(
                 column_count=Count("columns", distinct=True),
                 card_count=Count("columns__cards", distinct=True),
-            )
+            ).order_by("-updated_at")  # the aggregate drops Meta.ordering
         return qs.prefetch_related(
             Prefetch("columns__cards", queryset=annotated_cards()),
             "linked_projects",
@@ -57,6 +57,11 @@ class BoardViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+    def perform_destroy(self, instance):
+        if instance.user_id != self.request.user.id:
+            raise PermissionDenied("Only the board owner can delete it.")
+        instance.delete()
 
     def retrieve(self, request, *args, **kwargs):
         from .sync import sync_board_linked_projects
@@ -130,10 +135,7 @@ class ColumnListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_board(self):
-        return Board.objects.get(
-            id=self.kwargs["board_id"],
-            user=self.request.user,
-        )
+        return get_object_or_404(accessible_boards(self.request.user), id=self.kwargs["board_id"])
 
     def get_queryset(self):
         board = self.get_board()
@@ -163,7 +165,7 @@ class ColumnDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         return Column.objects.filter(
             board_id=self.kwargs["board_id"],
-            board__user=self.request.user,
+            board__in=accessible_boards(self.request.user),
         ).prefetch_related("cards")
 
 
@@ -172,7 +174,7 @@ class CardDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return annotated_cards().filter(column__board__user=self.request.user)
+        return annotated_cards().filter(column__board__in=accessible_boards(self.request.user))
 
     def perform_update(self, serializer):
         from .column_moves import apply_card_to_column
@@ -182,7 +184,7 @@ class CardDetailView(generics.RetrieveUpdateDestroyAPIView):
         if "project" in self.request.data:
             project_id = self.request.data.get("project")
             save_kwargs["project"] = (
-                Project.objects.filter(id=project_id, user=self.request.user).first()
+                accessible_projects(self.request.user).filter(id=project_id).first()
                 if project_id
                 else None
             )
@@ -210,22 +212,29 @@ class CardCreateView(generics.CreateAPIView):
     serializer_class = CardSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_column(self):
+        if not hasattr(self, "_column"):
+            self._column = get_object_or_404(
+                Column.objects.select_related("board"),
+                id=self.request.data.get("column"),
+                board__in=accessible_boards(self.request.user),
+            )
+        return self._column
+
+    def get_serializer_context(self):
+        # validate_assignee needs the board a new card is going onto.
+        return {**super().get_serializer_context(), "board": self.get_column().board}
+
     def perform_create(self, serializer):
         from .column_moves import apply_card_to_column
 
-        column = Column.objects.get(
-            id=self.request.data.get("column"),
-            board__user=self.request.user,
-        )
+        column = self.get_column()
         max_pos = column.cards.order_by("-position").values_list("position", flat=True).first()
         position = (max_pos + 1) if max_pos is not None else 0
         project = None
         project_id = self.request.data.get("project")
         if project_id:
-            project = Project.objects.filter(
-                id=project_id,
-                user=self.request.user,
-            ).first()
+            project = accessible_projects(self.request.user).filter(id=project_id).first()
         card = serializer.save(column=column, position=position, project=project)
         apply_card_to_column(
             card,
@@ -242,14 +251,14 @@ class CardCommentListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         return CardComment.objects.filter(
             card_id=self.kwargs["card_id"],
-            card__column__board__user=self.request.user,
+            card__column__board__in=accessible_boards(self.request.user),
         ).select_related("user")
 
     def perform_create(self, serializer):
         card = get_object_or_404(
             Card,
             id=self.kwargs["card_id"],
-            column__board__user=self.request.user,
+            column__board__in=accessible_boards(self.request.user),
         )
         serializer.save(user=self.request.user, card=card)
 
@@ -262,7 +271,7 @@ class CardCommentDetailView(generics.DestroyAPIView):
     def get_queryset(self):
         return CardComment.objects.filter(
             card_id=self.kwargs["card_id"],
-            card__column__board__user=self.request.user,
+            card__column__board__in=accessible_boards(self.request.user),
         )
 
     def check_object_permissions(self, request, obj):

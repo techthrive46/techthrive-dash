@@ -100,6 +100,18 @@ def delete_milestone_cards_for_project(project: Project) -> None:
     Card.objects.filter(project=project, milestone__isnull=False).delete()
 
 
+def unassign_cards_without_access(board_id) -> None:
+    """Clear assignees who can no longer see the board (e.g. removed members)."""
+    from projects.access import board_users
+
+    board = Board.objects.filter(pk=board_id).first()
+    if board is None:
+        return
+    Card.objects.filter(column__board=board, assignee__isnull=False).exclude(
+        assignee__in=board_users(board)
+    ).update(assignee=None)
+
+
 @transaction.atomic
 def sync_milestone_card_content(milestone: Milestone) -> None:
     card = Card.objects.filter(milestone=milestone).first()

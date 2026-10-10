@@ -1,11 +1,17 @@
+from accounts.serializers import UserSerializer
+from django.contrib.auth import get_user_model
 from django.db.models import Count, Prefetch, Q
 from django.shortcuts import get_object_or_404
-from rest_framework import generics, viewsets
-from rest_framework.exceptions import PermissionDenied
+from rest_framework import generics, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
+from .access import accessible_projects
 from .models import Milestone, MilestoneComment, PhaseUpdate, Project, ProjectPhase
 from .serializers import (
+    AddMemberSerializer,
     MilestoneCommentSerializer,
     MilestoneSerializer,
     PhaseUpdateSerializer,
@@ -19,7 +25,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        qs = Project.objects.filter(user=self.request.user)
+        qs = accessible_projects(self.request.user).select_related("user")
         if self.action == "list":
             return qs.annotate(
                 milestone_count=Count("milestones"),
@@ -38,10 +44,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     "milestones",
                     filter=Q(milestones__bucket_status=Milestone.BucketStatus.DONE),
                 ),
-            ).prefetch_related("phases")
+            ).prefetch_related("phases").order_by("-updated_at")  # the aggregate drops Meta.ordering
         return qs.prefetch_related(
             "milestones",
             "board",
+            "members",
             Prefetch(
                 "phases",
                 queryset=ProjectPhase.objects.annotate(
@@ -58,6 +65,44 @@ class ProjectViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
+    def perform_destroy(self, instance):
+        if instance.user_id != self.request.user.id:
+            raise PermissionDenied("Only the project owner can delete it.")
+        instance.delete()
+
+    @action(detail=True, methods=["post"], url_path="members")
+    def add_member(self, request, pk=None):
+        project = self.get_object()
+        if project.user_id != request.user.id:
+            raise PermissionDenied("Only the project owner can add members.")
+        serializer = AddMemberSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+        user = get_user_model().objects.filter(email__iexact=email).first()
+        if user is None:
+            raise ValidationError(
+                {"email": "No account uses this email. Ask them to sign up first."}
+            )
+        if user.id == project.user_id:
+            raise ValidationError({"email": "That's the project owner."})
+        project.members.add(user)
+        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["delete"], url_path=r"members/(?P<user_id>\d+)")
+    def remove_member(self, request, pk=None, user_id=None):
+        from kanban.sync import unassign_cards_without_access
+
+        project = self.get_object()
+        user_id = int(user_id)
+        # The owner can remove anyone; a member can only remove (leave) themselves.
+        if request.user.id not in (project.user_id, user_id):
+            raise PermissionDenied("Only the project owner can remove other members.")
+        member = get_object_or_404(project.members, pk=user_id)
+        project.members.remove(member)
+        if project.board_id:
+            unassign_cards_without_access(project.board_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class MilestoneListCreateView(generics.ListCreateAPIView):
     serializer_class = MilestoneSerializer
@@ -66,15 +111,15 @@ class MilestoneListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         return Milestone.objects.filter(
             project_id=self.kwargs["project_id"],
-            project__user=self.request.user,
+            project__in=accessible_projects(self.request.user),
         )
 
     def perform_create(self, serializer):
         from kanban.sync import create_card_for_milestone
 
-        project = Project.objects.get(
+        project = get_object_or_404(
+            accessible_projects(self.request.user),
             id=self.kwargs["project_id"],
-            user=self.request.user,
         )
         milestone = serializer.save(project=project)
         create_card_for_milestone(milestone)
@@ -88,7 +133,7 @@ class MilestoneDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         return Milestone.objects.filter(
             project_id=self.kwargs["project_id"],
-            project__user=self.request.user,
+            project__in=accessible_projects(self.request.user),
         )
 
     def perform_update(self, serializer):
@@ -106,7 +151,7 @@ class MilestoneCommentListCreateView(generics.ListCreateAPIView):
         return MilestoneComment.objects.filter(
             milestone_id=self.kwargs["milestone_id"],
             milestone__project_id=self.kwargs["project_id"],
-            milestone__project__user=self.request.user,
+            milestone__project__in=accessible_projects(self.request.user),
         ).select_related("user")
 
     def perform_create(self, serializer):
@@ -114,7 +159,7 @@ class MilestoneCommentListCreateView(generics.ListCreateAPIView):
             Milestone,
             id=self.kwargs["milestone_id"],
             project_id=self.kwargs["project_id"],
-            project__user=self.request.user,
+            project__in=accessible_projects(self.request.user),
         )
         serializer.save(user=self.request.user, milestone=milestone)
 
@@ -128,7 +173,7 @@ class MilestoneCommentDetailView(generics.RetrieveUpdateDestroyAPIView):
         return MilestoneComment.objects.filter(
             milestone_id=self.kwargs["milestone_id"],
             milestone__project_id=self.kwargs["project_id"],
-            milestone__project__user=self.request.user,
+            milestone__project__in=accessible_projects(self.request.user),
         ).select_related("user")
 
     def check_object_permissions(self, request, obj):
@@ -146,7 +191,7 @@ class ProjectPhaseDetailView(generics.RetrieveUpdateAPIView):
     def get_queryset(self):
         return ProjectPhase.objects.filter(
             project_id=self.kwargs["project_id"],
-            project__user=self.request.user,
+            project__in=accessible_projects(self.request.user),
         ).annotate(update_count=Count("updates"))
 
     def perform_update(self, serializer):
@@ -174,7 +219,7 @@ class PhaseUpdateListCreateView(generics.ListCreateAPIView):
         return PhaseUpdate.objects.filter(
             phase__key=self.kwargs["phase_key"],
             phase__project_id=self.kwargs["project_id"],
-            phase__project__user=self.request.user,
+            phase__project__in=accessible_projects(self.request.user),
         ).select_related("user")
 
     def perform_create(self, serializer):
@@ -182,7 +227,7 @@ class PhaseUpdateListCreateView(generics.ListCreateAPIView):
             ProjectPhase,
             key=self.kwargs["phase_key"],
             project_id=self.kwargs["project_id"],
-            project__user=self.request.user,
+            project__in=accessible_projects(self.request.user),
         )
         serializer.save(user=self.request.user, phase=phase)
 
@@ -196,7 +241,7 @@ class PhaseUpdateDetailView(generics.DestroyAPIView):
         return PhaseUpdate.objects.filter(
             phase__key=self.kwargs["phase_key"],
             phase__project_id=self.kwargs["project_id"],
-            phase__project__user=self.request.user,
+            phase__project__in=accessible_projects(self.request.user),
         )
 
     def check_object_permissions(self, request, obj):

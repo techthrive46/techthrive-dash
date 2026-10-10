@@ -2,6 +2,7 @@
 
 import { PageHeader } from "@/components/layout/page-header";
 import { FadeIn } from "@/components/motion/fade-in";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -76,6 +77,15 @@ export default function KanbanListPage() {
                       {board.key}
                     </span>
                     <CardTitle>{board.title}</CardTitle>
+                    {board.is_owner === false && (
+                      <Badge
+                        variant="muted"
+                        className="ml-auto"
+                        title={`Shared by ${board.owner?.email ?? "another user"}`}
+                      >
+                        shared
+                      </Badge>
+                    )}
                   </div>
                   <CardDescription>
                     {board.column_count ?? 0} columns · {board.card_count ?? 0} tickets

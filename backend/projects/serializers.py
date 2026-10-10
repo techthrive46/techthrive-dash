@@ -77,13 +77,28 @@ class MilestoneSerializer(serializers.ModelSerializer):
         return phase
 
 
+class AddMemberSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class ProjectAccessFields(serializers.Serializer):
+    """Owner and the viewer's role, shared by the list and detail serializers."""
+
+    owner = UserSerializer(source="user", read_only=True)
+    is_owner = serializers.SerializerMethodField()
+
+    def get_is_owner(self, project):
+        return project.user_id == self.context["request"].user.id
+
+
 CURRENT_PHASE_CHOICES = [
     *ProjectPhase.Key.choices,
     (Project.COMPLETED_PHASE, "All phases complete"),
 ]
 
 
-class ProjectSerializer(serializers.ModelSerializer):
+class ProjectSerializer(ProjectAccessFields, serializers.ModelSerializer):
+    members = UserSerializer(many=True, read_only=True)
     current_phase = serializers.ChoiceField(choices=CURRENT_PHASE_CHOICES, required=False)
     milestones = MilestoneSerializer(many=True, read_only=True)
     phases = ProjectPhaseSerializer(many=True, read_only=True)
@@ -102,6 +117,9 @@ class ProjectSerializer(serializers.ModelSerializer):
             "board",
             "board_id",
             "board_title",
+            "owner",
+            "is_owner",
+            "members",
             "phases",
             "milestones",
             "created_at",
@@ -110,10 +128,16 @@ class ProjectSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "status", "created_at", "updated_at")
 
     def validate_board(self, board):
-        if board is None:
-            return board
         user = self.context["request"].user
-        if board.user_id != user.id:
+        if self.instance is not None and self.instance.user_id != user.id:
+            # Linking a board shares it with every member, so only the owner
+            # may change it. Members' edit forms resend the current value.
+            if board != self.instance.board:
+                raise serializers.ValidationError(
+                    "Only the project owner can change the linked board."
+                )
+            return board
+        if board is not None and board.user_id != user.id:
             raise serializers.ValidationError("Board not found.")
         return board
 
@@ -128,7 +152,11 @@ class ProjectSerializer(serializers.ModelSerializer):
         return project
 
     def update(self, instance, validated_data):
-        from kanban.sync import delete_milestone_cards_for_project, sync_project_milestones_to_board
+        from kanban.sync import (
+            delete_milestone_cards_for_project,
+            sync_project_milestones_to_board,
+            unassign_cards_without_access,
+        )
 
         old_board_id = instance.board_id
         current_phase = validated_data.pop("current_phase", None)
@@ -138,6 +166,8 @@ class ProjectSerializer(serializers.ModelSerializer):
 
         if old_board_id and old_board_id != project.board_id:
             delete_milestone_cards_for_project(project)
+            # Members of this project may no longer see the old board.
+            unassign_cards_without_access(old_board_id)
 
         if project.board_id:
             sync_project_milestones_to_board(project)
@@ -145,7 +175,7 @@ class ProjectSerializer(serializers.ModelSerializer):
         return project
 
 
-class ProjectListSerializer(serializers.ModelSerializer):
+class ProjectListSerializer(ProjectAccessFields, serializers.ModelSerializer):
     milestone_count = serializers.IntegerField(read_only=True)
     completed_milestone_count = serializers.IntegerField(read_only=True)
     todo_milestone_count = serializers.IntegerField(read_only=True)
@@ -165,6 +195,8 @@ class ProjectListSerializer(serializers.ModelSerializer):
             "current_phase",
             "due_date",
             "board_id",
+            "owner",
+            "is_owner",
             "milestone_count",
             "completed_milestone_count",
             "todo_milestone_count",

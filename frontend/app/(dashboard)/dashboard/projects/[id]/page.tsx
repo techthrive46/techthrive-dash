@@ -3,6 +3,7 @@
 import { PageHeader } from "@/components/layout/page-header";
 import { MilestoneList } from "@/components/projects/milestone-list";
 import { PhasePanel } from "@/components/projects/phase-panel";
+import { ProjectMembers } from "@/components/projects/project-members";
 import { ProjectForm } from "@/components/projects/project-form";
 import { SdlcCycle } from "@/components/projects/sdlc-cycle";
 import { KanbanIcon } from "@/components/icons/nav-icons";
@@ -133,6 +134,12 @@ export default function ProjectDetailPage() {
     }
   }
 
+  function handleLeft() {
+    queryClient.removeQueries({ queryKey: projectKey });
+    markRelatedStale();
+    router.push("/dashboard/projects");
+  }
+
   async function handleDeleteMilestone(milestoneId: string) {
     await api.deleteMilestone(params.id, milestoneId);
     await refreshProject();
@@ -178,6 +185,9 @@ export default function ProjectDetailPage() {
             <Badge variant={STATUS_VARIANTS[project.status]}>
               {project.status.replace("_", " ")}
             </Badge>
+            {project.is_owner === false && (
+              <Badge variant="muted">shared by {project.owner?.email}</Badge>
+            )}
             {currentPhaseMeta && (
               <button
                 type="button"
@@ -219,10 +229,14 @@ export default function ProjectDetailPage() {
             <DropdownMenuTrigger aria-label="Project actions" />
             <DropdownMenuContent>
               <DropdownMenuItem onClick={() => setEditOpen(true)}>Edit project</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem destructive onClick={handleDelete}>
-                Delete project
-              </DropdownMenuItem>
+              {project.is_owner && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem destructive onClick={handleDelete}>
+                    Delete project
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         }
@@ -284,12 +298,23 @@ export default function ProjectDetailPage() {
             />
           </div>
         </Card>
+
+        <Card>
+          <CardTitle>Members</CardTitle>
+          <CardDescription>
+            People on this project, who can also see its linked board.
+          </CardDescription>
+          <div className="mt-4">
+            <ProjectMembers project={project} currentUser={currentUser} onLeft={handleLeft} />
+          </div>
+        </Card>
       </div>
 
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit project">
         <ProjectForm
           initial={project}
           boards={boards}
+          canChangeBoard={Boolean(project.is_owner)}
           onSubmit={handleUpdate}
           onCancel={() => setEditOpen(false)}
         />
