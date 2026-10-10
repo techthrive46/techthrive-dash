@@ -2,30 +2,19 @@
 
 import { DocEditor } from "@/components/docs/doc-editor";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ApiError, api } from "@/lib/api";
-import type { Doc } from "@/lib/types";
+import { ApiError } from "@/lib/api";
+import { useDoc } from "@/lib/queries";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
 
 export default function DocPage() {
   const params = useParams<{ id: string }>();
-  const [doc, setDoc] = useState<Doc | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    api
-      .getDoc(params.id)
-      .then((data) => active && setDoc(data))
-      .catch((err) => {
-        if (!active) return;
-        setError(err instanceof ApiError && err.status === 404 ? "Document not found." : "Couldn't load this document.");
-      });
-    return () => {
-      active = false;
-    };
-  }, [params.id]);
+  const { data: doc, error: loadError } = useDoc(params.id);
+  const error = loadError
+    ? loadError instanceof ApiError && loadError.status === 404
+      ? "Document not found."
+      : "Couldn't load this document."
+    : null;
 
   if (error) {
     return (

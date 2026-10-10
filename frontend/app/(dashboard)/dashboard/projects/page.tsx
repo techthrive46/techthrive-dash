@@ -8,27 +8,16 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
-import type { Board, CurrentPhase, Project } from "@/lib/types";
-import { useEffect, useState } from "react";
+import { queryKeys, useBoards, useProjects } from "@/lib/queries";
+import type { CurrentPhase } from "@/lib/types";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
 export default function ProjectsPage() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [boards, setBoards] = useState<Board[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: projects = [], isPending: loading } = useProjects();
+  const { data: boards = [] } = useBoards();
   const [modalOpen, setModalOpen] = useState(false);
-
-  async function loadData() {
-    const [projectData, boardData] = await Promise.all([
-      api.getProjects(),
-      api.getBoards(),
-    ]);
-    setProjects(projectData);
-    setBoards(boardData);
-  }
-
-  useEffect(() => {
-    loadData().finally(() => setLoading(false));
-  }, []);
 
   async function handleCreate(data: {
     name: string;
@@ -39,7 +28,10 @@ export default function ProjectsPage() {
   }) {
     await api.createProject(data);
     setModalOpen(false);
-    await loadData();
+    // Linking a board changes that board's linked projects too.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.boards.all, refetchType: "none" });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard, refetchType: "none" });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.projects.list() });
   }
 
   return (

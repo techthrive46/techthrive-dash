@@ -4,12 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -23,6 +25,8 @@ export default function RegisterPage() {
     try {
       await api.register(email, password);
       await api.login(email, password);
+      // Never show a previous account's cached data.
+      queryClient.clear();
       router.push("/dashboard");
       router.refresh();
     } catch (err) {

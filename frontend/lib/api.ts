@@ -30,7 +30,17 @@ export class ApiError extends Error {
   }
 }
 
-async function refreshAccessToken(): Promise<string | null> {
+// Concurrent 401s share one in-flight refresh instead of each sending its own.
+let refreshInFlight: Promise<string | null> | null = null;
+
+function refreshAccessToken(): Promise<string | null> {
+  refreshInFlight ??= requestNewAccessToken().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+async function requestNewAccessToken(): Promise<string | null> {
   const refresh = getRefreshToken();
   if (!refresh) return null;
 

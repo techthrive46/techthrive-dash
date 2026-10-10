@@ -19,22 +19,22 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Modal } from "@/components/ui/modal";
 import { api } from "@/lib/api";
+import { queryKeys, useBoards, useCurrentUser, useProject } from "@/lib/queries";
 import { SDLC_PHASE_BY_KEY, countDonePhases, getCurrentPhaseKey } from "@/lib/sdlc";
 import type {
-  Board,
   CurrentPhase,
   Milestone,
   Project,
   ProjectPhase,
   ProjectStatus,
   SdlcPhaseKey,
-  User,
 } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
+import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 const STATUS_VARIANTS: Record<ProjectStatus, "default" | "success" | "warning" | "muted"> = {
   planning: "muted",
@@ -48,30 +48,36 @@ const BACK_TO_PROJECTS = { href: "/dashboard/projects", label: "Back to projects
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const [project, setProject] = useState<Project | null>(null);
-  const [boards, setBoards] = useState<Board[]>([]);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const projectKey = queryKeys.projects.detail(params.id);
+  const { data: project, isPending: loading } = useProject(params.id);
+  const { data: boards = [] } = useBoards();
+  const { data: currentUser = null } = useCurrentUser();
   const [editOpen, setEditOpen] = useState(false);
   const [selectedPhaseKey, setSelectedPhaseKey] = useState<SdlcPhaseKey | null>(null);
 
-  async function loadProject() {
-    const [projectData, boardData, userData] = await Promise.all([
-      api.getProject(params.id),
-      api.getBoards(),
-      api.me(),
-    ]);
-    setProject(projectData);
-    setBoards(boardData);
-    setCurrentUser(userData);
-    setSelectedPhaseKey(
-      (prev) => prev ?? getCurrentPhaseKey((projectData.phases ?? []) as ProjectPhase[]),
-    );
+  // Open on the project's current phase once it has loaded; after that the
+  // selection only changes when the user picks a phase.
+  const initialPhaseKey = project
+    ? getCurrentPhaseKey((project.phases ?? []) as ProjectPhase[])
+    : null;
+  if (selectedPhaseKey === null && initialPhaseKey) {
+    setSelectedPhaseKey(initialPhaseKey);
   }
 
-  useEffect(() => {
-    loadProject().finally(() => setLoading(false));
-  }, [params.id]);
+  // Milestones show up as cards on a linked board, and project changes feed
+  // the projects list and dashboard, so mark those stale too, without
+  // refetching them now. Only the project itself is refetched.
+  function markRelatedStale() {
+    for (const queryKey of [queryKeys.projects.list(), queryKeys.boards.all, queryKeys.dashboard]) {
+      void queryClient.invalidateQueries({ queryKey, refetchType: "none" });
+    }
+  }
+
+  async function refreshProject() {
+    markRelatedStale();
+    await queryClient.invalidateQueries({ queryKey: projectKey });
+  }
 
   async function handleUpdate(data: {
     name: string;
@@ -82,12 +88,14 @@ export default function ProjectDetailPage() {
   }) {
     await api.updateProject(params.id, data);
     setEditOpen(false);
-    await loadProject();
+    await refreshProject();
   }
 
   async function handleDelete() {
     if (!confirm("Delete this project?")) return;
     await api.deleteProject(params.id);
+    queryClient.removeQueries({ queryKey: projectKey });
+    markRelatedStale();
     router.push("/dashboard/projects");
   }
 
@@ -97,21 +105,21 @@ export default function ProjectDetailPage() {
     phase: string | null;
   }) {
     await api.createMilestone(params.id, data);
-    await loadProject();
+    await refreshProject();
   }
 
   async function handleToggleMilestone(milestone: Milestone) {
     await api.updateMilestone(params.id, milestone.id, {
       completed: !milestone.completed,
     });
-    await loadProject();
+    await refreshProject();
   }
 
   function handlePhaseUpdated(updated: ProjectPhase) {
     const previous = ((project?.phases ?? []) as ProjectPhase[]).find(
       (phase) => phase.key === updated.key,
     );
-    setProject((prev) =>
+    queryClient.setQueryData<Project>(projectKey, (prev) =>
       prev && {
         ...prev,
         phases: ((prev.phases ?? []) as ProjectPhase[]).map((phase) =>
@@ -121,13 +129,13 @@ export default function ProjectDetailPage() {
     );
     // Project status and current phase are derived from the phases server-side.
     if (updated.status !== previous?.status) {
-      void loadProject();
+      void refreshProject();
     }
   }
 
   async function handleDeleteMilestone(milestoneId: string) {
     await api.deleteMilestone(params.id, milestoneId);
-    await loadProject();
+    await refreshProject();
   }
 
   if (loading) {

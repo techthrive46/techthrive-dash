@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/queries";
 import type { Doc } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import Highlight from "@tiptap/extension-highlight";
@@ -17,6 +18,7 @@ import TextAlign from "@tiptap/extension-text-align";
 import { CharacterCount, Placeholder } from "@tiptap/extensions";
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -28,6 +30,7 @@ const AUTOSAVE_DELAY_MS = 800;
 
 export function DocEditor({ doc }: { doc: Doc }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [title, setTitle] = useState(doc.title);
   const [status, setStatus] = useState<SaveStatus>("saved");
   const [lastSavedAt, setLastSavedAt] = useState(doc.updated_at);
@@ -51,6 +54,8 @@ export function DocEditor({ doc }: { doc: Doc }) {
       try {
         const saved = await api.updateDoc(doc.id, payload);
         setLastSavedAt(saved.updated_at);
+        // Titles and excerpts in the docs list are now out of date.
+        void queryClient.invalidateQueries({ queryKey: queryKeys.docs.lists() });
         setStatus(Object.keys(pending.current).length ? "pending" : "saved");
       } catch {
         // Keep the failed changes so the next edit (or retry) sends them again.
@@ -59,7 +64,7 @@ export function DocEditor({ doc }: { doc: Doc }) {
       }
     });
     return chain.current;
-  }, [doc.id]);
+  }, [doc.id, queryClient]);
 
   const queue = useCallback(
     (patch: DocPatch) => {
@@ -136,6 +141,7 @@ export function DocEditor({ doc }: { doc: Doc }) {
     pending.current = {};
     if (timer.current) clearTimeout(timer.current);
     await api.deleteDoc(doc.id);
+    void queryClient.invalidateQueries({ queryKey: queryKeys.docs.lists() });
     router.push("/docs");
   }
 
