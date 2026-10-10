@@ -5,7 +5,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from kanban.models import Board, Card
+from kanban.models import Card
+from projects.access import accessible_boards, accessible_projects
 from projects.models import Milestone, Project
 
 
@@ -13,24 +14,22 @@ class DashboardSummaryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user = request.user
+        projects = accessible_projects(request.user)
+        boards = accessible_boards(request.user)
         today = date.today()
 
-        active_projects = Project.objects.filter(
-            user=user,
-            status=Project.Status.ACTIVE,
-        ).count()
+        active_projects = projects.filter(status=Project.Status.ACTIVE).count()
 
         overdue_milestones = Milestone.objects.filter(
-            project__user=user,
+            project__in=projects,
             completed=False,
             target_date__lt=today,
         ).count()
 
-        total_boards = Board.objects.filter(user=user).count()
+        total_boards = boards.count()
 
         recent_cards = (
-            Card.objects.filter(column__board__user=user)
+            Card.objects.filter(column__board__in=boards)
             .select_related("column", "column__board")
             .order_by("-updated_at")[:5]
         )
@@ -40,7 +39,7 @@ class DashboardSummaryView(APIView):
                 "active_projects": active_projects,
                 "overdue_milestones": overdue_milestones,
                 "total_boards": total_boards,
-                "total_projects": Project.objects.filter(user=user).count(),
+                "total_projects": projects.count(),
                 "recent_activity": [
                     {
                         "id": str(card.id),

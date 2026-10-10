@@ -3,9 +3,11 @@
 import { Button } from "@/components/ui/button";
 import { MarkdownEditor, MarkdownView } from "@/components/ui/markdown-editor";
 import { api } from "@/lib/api";
+import { queryKeys, useMilestoneComments } from "@/lib/queries";
 import type { MilestoneComment, User } from "@/lib/types";
 import { formatDateTime } from "@/lib/utils";
-import { FormEvent, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { FormEvent, useState } from "react";
 
 interface MilestoneCommentsProps {
   projectId: string;
@@ -18,27 +20,11 @@ export function MilestoneComments({
   milestoneId,
   currentUser,
 }: MilestoneCommentsProps) {
-  const [comments, setComments] = useState<MilestoneComment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const commentsKey = queryKeys.projects.milestoneComments(projectId, milestoneId);
+  const { data: comments = [], isPending: loading } = useMilestoneComments(projectId, milestoneId);
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-
-    async function fetchComments() {
-      const data = await api.getMilestoneComments(projectId, milestoneId);
-      if (!active) return;
-      setComments(data);
-      setLoading(false);
-    }
-
-    void fetchComments();
-
-    return () => {
-      active = false;
-    };
-  }, [projectId, milestoneId]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -51,7 +37,7 @@ export function MilestoneComments({
     setSubmitting(true);
     try {
       const comment = await api.createMilestoneComment(projectId, milestoneId, trimmed);
-      setComments((prev) => [...prev, comment]);
+      queryClient.setQueryData<MilestoneComment[]>(commentsKey, (prev = []) => [...prev, comment]);
       setBody("");
     } finally {
       setSubmitting(false);
@@ -60,7 +46,9 @@ export function MilestoneComments({
 
   async function handleDelete(commentId: string) {
     await api.deleteMilestoneComment(projectId, milestoneId, commentId);
-    setComments((prev) => prev.filter((c) => c.id !== commentId));
+    queryClient.setQueryData<MilestoneComment[]>(commentsKey, (prev = []) =>
+      prev.filter((c) => c.id !== commentId),
+    );
   }
 
   return (

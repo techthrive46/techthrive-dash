@@ -17,6 +17,13 @@ class Project(models.Model):
         on_delete=models.CASCADE,
         related_name="projects",
     )
+    # People the owner has shared the project with. Members can work on the
+    # project and see its linked board; only the owner manages membership.
+    members = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name="shared_projects",
+        blank=True,
+    )
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     status = models.CharField(

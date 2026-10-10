@@ -1,6 +1,7 @@
 from accounts.serializers import UserSerializer
 from rest_framework import serializers
 
+from projects.access import accessible_boards, accessible_projects, board_users
 from projects.models import Project
 
 import re
@@ -72,16 +73,21 @@ class CardSerializer(serializers.ModelSerializer):
 
     def validate_column(self, column):
         user = self.context["request"].user
-        if column.board.user_id != user.id:
+        if not accessible_boards(user).filter(pk=column.board_id).exists():
             raise serializers.ValidationError("Column not found.")
         if self.instance and column.board_id != self.instance.column.board_id:
             raise serializers.ValidationError("Issues can only move within their board.")
         return column
 
     def validate_assignee(self, assignee):
-        # Boards are single-owner, so an issue is either yours or unassigned.
-        if assignee is not None and assignee.id != self.context["request"].user.id:
-            raise serializers.ValidationError("You can only assign issues to yourself.")
+        if assignee is None:
+            return assignee
+        if self.instance is not None:
+            board = self.instance.column.board
+        else:
+            board = self.context.get("board")
+        if board is None or not board_users(board).filter(pk=assignee.pk).exists():
+            raise serializers.ValidationError("Assignee must be someone with access to this board.")
         return assignee
 
     def validate_labels(self, labels):
@@ -106,7 +112,7 @@ class CardSerializer(serializers.ModelSerializer):
         if project is None:
             return project
         user = self.context["request"].user
-        if project.user_id != user.id:
+        if not accessible_projects(user).filter(pk=project.pk).exists():
             raise serializers.ValidationError("Project not found.")
         return project
 
@@ -144,7 +150,17 @@ class LinkedProjectSerializer(serializers.ModelSerializer):
         fields = ("id", "name", "status")
 
 
-class BoardListSerializer(serializers.ModelSerializer):
+class BoardAccessFields(serializers.Serializer):
+    """Owner and the viewer's role, shared by the list and detail serializers."""
+
+    owner = UserSerializer(source="user", read_only=True)
+    is_owner = serializers.SerializerMethodField()
+
+    def get_is_owner(self, board):
+        return board.user_id == self.context["request"].user.id
+
+
+class BoardListSerializer(BoardAccessFields, serializers.ModelSerializer):
     column_count = serializers.IntegerField(read_only=True)
     card_count = serializers.IntegerField(read_only=True)
     project_id = serializers.UUIDField(source="project.id", read_only=True, allow_null=True)
@@ -157,6 +173,8 @@ class BoardListSerializer(serializers.ModelSerializer):
             "key",
             "project",
             "project_id",
+            "owner",
+            "is_owner",
             "column_count",
             "card_count",
             "created_at",
@@ -165,8 +183,9 @@ class BoardListSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at")
 
 
-class BoardDetailSerializer(serializers.ModelSerializer):
+class BoardDetailSerializer(BoardAccessFields, serializers.ModelSerializer):
     columns = ColumnSerializer(many=True, read_only=True)
+    members = serializers.SerializerMethodField()
     project_id = serializers.UUIDField(source="project.id", read_only=True, allow_null=True)
     linked_projects = LinkedProjectSerializer(many=True, read_only=True)
 
@@ -179,11 +198,18 @@ class BoardDetailSerializer(serializers.ModelSerializer):
             "project",
             "project_id",
             "linked_projects",
+            "owner",
+            "is_owner",
+            "members",
             "columns",
             "created_at",
             "updated_at",
         )
         read_only_fields = ("id", "created_at", "updated_at")
+
+    def get_members(self, board):
+        """Everyone who can be assigned issues on this board, owner included."""
+        return UserSerializer(board_users(board), many=True).data
 
     def validate_key(self, value):
         return validate_board_key(value)
@@ -192,7 +218,7 @@ class BoardDetailSerializer(serializers.ModelSerializer):
         if project is None:
             return project
         user = self.context["request"].user
-        if project.user_id != user.id:
+        if not accessible_projects(user).filter(pk=project.pk).exists():
             raise serializers.ValidationError("Project not found.")
         return project
 
@@ -206,6 +232,14 @@ class BoardCreateSerializer(serializers.ModelSerializer):
 
     def validate_key(self, value):
         return validate_board_key(value) if value else value
+
+    def validate_project(self, project):
+        if project is None:
+            return project
+        user = self.context["request"].user
+        if not accessible_projects(user).filter(pk=project.pk).exists():
+            raise serializers.ValidationError("Project not found.")
+        return project
 
     def create(self, validated_data):
         board = Board.objects.create(**validated_data)

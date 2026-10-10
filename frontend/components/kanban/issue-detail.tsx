@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MarkdownEditor, MarkdownHint, MarkdownView } from "@/components/ui/markdown-editor";
 import { api } from "@/lib/api";
+import { queryKeys, useCardComments, useProjects } from "@/lib/queries";
 import { ISSUE_TYPES, PRIORITIES, labelColor, tintedChipStyle } from "@/lib/jira";
 import { resolveColumnColor } from "@/lib/kanban-themes";
 import type {
@@ -18,10 +19,10 @@ import type {
   IssueType,
   KanbanCard,
   KanbanColumn,
-  Project,
   User,
 } from "@/lib/types";
 import { formatDateTime } from "@/lib/utils";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, ReactNode, useEffect, useState } from "react";
@@ -32,6 +33,8 @@ interface IssueDetailProps {
   card: KanbanCard;
   boardKey: string;
   columns: KanbanColumn[];
+  /** People the issue can be assigned to. */
+  members: User[];
   currentUser: User | null;
   onClose: () => void;
   onUpdate: (patch: CardPatch) => Promise<void>;
@@ -122,22 +125,15 @@ function Comments({
   currentUser: User | null;
   onCountChange: (count: number) => void;
 }) {
-  const [comments, setComments] = useState<CardComment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: comments = [], isPending: loading } = useCardComments(cardId);
   const [body, setBody] = useState("");
   const [posting, setPosting] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    api.getCardComments(cardId).then((data) => {
-      if (!active) return;
-      setComments(data);
-      setLoading(false);
-    });
-    return () => {
-      active = false;
-    };
-  }, [cardId]);
+  function setComments(next: CardComment[]) {
+    queryClient.setQueryData(queryKeys.boards.cardComments(cardId), next);
+    onCountChange(next.length);
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -150,9 +146,7 @@ function Comments({
     setPosting(true);
     try {
       const comment = await api.createCardComment(cardId, trimmed);
-      const next = [...comments, comment];
-      setComments(next);
-      onCountChange(next.length);
+      setComments([...comments, comment]);
       setBody("");
     } finally {
       setPosting(false);
@@ -161,9 +155,7 @@ function Comments({
 
   async function handleDelete(commentId: string) {
     await api.deleteCardComment(cardId, commentId);
-    const next = comments.filter((comment) => comment.id !== commentId);
-    setComments(next);
-    onCountChange(next.length);
+    setComments(comments.filter((comment) => comment.id !== commentId));
   }
 
   return (
@@ -228,6 +220,7 @@ export function IssueDetail({
   card,
   boardKey,
   columns,
+  members,
   currentUser,
   onClose,
   onUpdate,
@@ -238,15 +231,11 @@ export function IssueDetail({
   const [editingDescription, setEditingDescription] = useState(false);
   const [description, setDescription] = useState(card.description);
   const [storyPoints, setStoryPoints] = useState(card.story_points?.toString() ?? "");
-  const [projects, setProjects] = useState<Project[]>([]);
+  const { data: projects = [] } = useProjects();
   const [error, setError] = useState<string | null>(null);
 
   const column = columns.find((col) => col.id === card.column_id);
   const isMilestone = Boolean(card.milestone_id);
-
-  useEffect(() => {
-    api.getProjects().then(setProjects).catch(() => setProjects([]));
-  }, []);
 
   useEffect(() => {
     function handleKeyDown(event: globalThis.KeyboardEvent) {
@@ -467,23 +456,25 @@ export function IssueDetail({
               </p>
               <div className="px-3 py-1">
                 <DetailRow label="Assignee">
-                  <div className="flex items-center gap-2 px-2 py-1">
+                  <div className="flex items-center gap-1 pl-2">
                     <Avatar email={card.assignee_email} size={24} />
-                    <span className="truncate text-sm text-[var(--foreground)]">
-                      {card.assignee_email ?? "Unassigned"}
-                    </span>
-                  </div>
-                  {currentUser && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void save({ assignee: card.assignee === currentUser.id ? null : currentUser.id })
+                    <select
+                      value={card.assignee ?? ""}
+                      onChange={(e) =>
+                        void save({ assignee: e.target.value ? Number(e.target.value) : null })
                       }
-                      className="px-2 text-xs font-medium text-[var(--accent)] hover:underline"
+                      aria-label="Assignee"
+                      className={FIELD_CLASS}
                     >
-                      {card.assignee === currentUser.id ? "Unassign" : "Assign to me"}
-                    </button>
-                  )}
+                      <option value="">Unassigned</option>
+                      {members.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.email}
+                          {member.id === currentUser?.id ? " (you)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </DetailRow>
                 <DetailRow label="Priority">
                   <div className="flex items-center gap-1 pl-2">

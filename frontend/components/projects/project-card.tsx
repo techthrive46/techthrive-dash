@@ -78,9 +78,16 @@ export function ProjectCard({
       <Card hover delay={index * 0.05} className="tech-frame">
         <div className="flex items-start justify-between gap-3">
           <CardTitle>{project.name}</CardTitle>
-          <Badge variant={statusVariant[project.status]}>
-            {statusLabel[project.status]}
-          </Badge>
+          <div className="flex shrink-0 gap-1.5">
+            {project.is_owner === false && (
+              <Badge variant="muted" title={`Shared by ${project.owner?.email ?? "another user"}`}>
+                shared
+              </Badge>
+            )}
+            <Badge variant={statusVariant[project.status]}>
+              {statusLabel[project.status]}
+            </Badge>
+          </div>
         </div>
         {project.description && (
           <CardDescription className="line-clamp-2 normal-case">

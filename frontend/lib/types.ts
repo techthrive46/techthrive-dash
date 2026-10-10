@@ -75,6 +75,10 @@ export interface Project {
   board: string | null;
   board_id: string | null;
   board_title?: string | null;
+  owner?: User;
+  /** Whether the viewer created the project (and so manages its members). */
+  is_owner?: boolean;
+  members?: User[];
   phases?: ProjectPhase[] | ProjectPhaseSummary[];
   milestones?: Milestone[];
   milestone_count?: number;
@@ -148,6 +152,10 @@ export interface Board {
   project: string | null;
   project_id: string | null;
   linked_projects?: LinkedProject[];
+  owner?: User;
+  is_owner?: boolean;
+  /** Everyone who can see the board (owner plus linked projects' members). */
+  members?: User[];
   column_count?: number;
   card_count?: number;
   columns?: KanbanColumn[];

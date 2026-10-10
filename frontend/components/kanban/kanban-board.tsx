@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { queryKeys, useBoard, useCurrentUser } from "@/lib/queries";
 import { EMPTY_FILTERS, matchesFilters, type BoardFilters } from "@/lib/jira";
 import {
   findCard,
@@ -20,7 +21,7 @@ import {
   resolveColumnId,
 } from "@/lib/kanban-dnd";
 import { isCompletedColumn } from "@/lib/kanban-themes";
-import type { Board, IssueType, KanbanCard, KanbanColumn, User } from "@/lib/types";
+import type { Board, IssueType, KanbanCard, KanbanColumn } from "@/lib/types";
 import {
   CollisionDetection,
   DndContext,
@@ -37,6 +38,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
+import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -52,12 +54,12 @@ type SettingsDialog =
   | null;
 
 export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
-  const [board, setBoard] = useState<Board | null>(null);
-  const [columns, setColumns] = useState<KanbanColumn[]>([]);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const queryClient = useQueryClient();
+  const { data: board, isPending: loading } = useBoard(boardId);
+  const { data: currentUser = null } = useCurrentUser();
+  const columns = useMemo(() => board?.columns ?? [], [board]);
   const [activeCard, setActiveCard] = useState<KanbanCard | null>(null);
   const [activeColumn, setActiveColumn] = useState<KanbanColumn | null>(null);
-  const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<BoardFilters>(EMPTY_FILTERS);
   const [creatingInColumn, setCreatingInColumn] = useState<string | null>(null);
   const [openCardId, setOpenCardId] = useState<string | null>(null);
@@ -96,15 +98,32 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
     [columns],
   );
 
-  async function loadBoard() {
-    const data = await api.getBoard(boardId);
-    setBoard(data);
-    setColumns(data.columns || []);
+  // The cached board is the single source of truth; local edits (including
+  // optimistic drag-and-drop moves) are written straight into it.
+  const setColumns = useCallback(
+    (next: KanbanColumn[] | ((prev: KanbanColumn[]) => KanbanColumn[])) => {
+      queryClient.setQueryData<Board>(queryKeys.boards.detail(boardId), (prev) =>
+        prev && {
+          ...prev,
+          columns: typeof next === "function" ? next(prev.columns ?? []) : next,
+        },
+      );
+    },
+    [queryClient, boardId],
+  );
+
+  function loadBoard() {
+    return queryClient.invalidateQueries({ queryKey: queryKeys.boards.detail(boardId) });
   }
 
-  useEffect(() => {
-    Promise.all([loadBoard(), api.me().then(setCurrentUser)]).finally(() => setLoading(false));
-  }, [boardId]);
+  // Card and column changes alter the board list counts, the dashboard
+  // activity feed and milestone progress. Mark those stale without refetching
+  // now; each refetches the next time its page is visited.
+  function markRelatedStale() {
+    for (const queryKey of [queryKeys.boards.list(), queryKeys.projects.all, queryKeys.dashboard]) {
+      void queryClient.invalidateQueries({ queryKey, refetchType: "none" });
+    }
+  }
 
   const visibleCardsByColumn = useMemo(() => {
     const map = new Map<string, KanbanCard[]>();
@@ -194,6 +213,7 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
         ),
       });
       setColumns(updated.columns || nextColumns);
+      markRelatedStale();
     } catch {
       await loadBoard();
     }
@@ -251,6 +271,7 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
         column.id === columnId ? { ...column, cards: [...column.cards, card] } : column,
       ),
     );
+    markRelatedStale();
   }
 
   async function handleUpdateCard(cardId: string, patch: CardPatch) {
@@ -261,6 +282,7 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
     } else {
       replaceCard(updated);
     }
+    markRelatedStale();
   }
 
   async function handleDeleteCard(cardId: string) {
@@ -273,6 +295,7 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
         cards: column.cards.filter((card) => card.id !== cardId),
       })),
     );
+    markRelatedStale();
   }
 
   function handleCommentCountChange(cardId: string, count: number) {
@@ -288,12 +311,16 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
 
   async function handleSaveTitle(title: string) {
     const updated = await api.updateBoard(boardId, { title });
-    setBoard((prev) => (prev ? { ...prev, title: updated.title } : prev));
+    queryClient.setQueryData<Board>(queryKeys.boards.detail(boardId), (prev) =>
+      prev && { ...prev, title: updated.title },
+    );
+    markRelatedStale();
   }
 
   async function handleDeleteColumn(columnId: string) {
     if (!confirm("Delete this column? Tickets in it will be deleted.")) return;
     await api.deleteColumn(boardId, columnId);
+    markRelatedStale();
     await loadBoard();
   }
 
@@ -344,6 +371,7 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
       if (dialog.kind === "add-column") {
         if (!dialogValue.trim()) return;
         await api.createColumn(boardId, dialogValue.trim());
+        markRelatedStale();
         await loadBoard();
       } else if (dialog.kind === "wip") {
         const value = dialogValue.trim() === "" ? null : Number(dialogValue);
@@ -359,6 +387,7 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
         );
       } else {
         await api.updateBoard(boardId, { key: dialogValue.trim().toUpperCase() });
+        markRelatedStale();
         await loadBoard();
       }
       setDialog(null);
@@ -413,7 +442,7 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
         onCreateIssue={() => columns[0] && setCreatingInColumn(columns[0].id)}
         onAddColumn={() => openDialog({ kind: "add-column" })}
         onEditKey={() => openDialog({ kind: "key" })}
-        onDeleteBoard={onDeleteBoard}
+        onDeleteBoard={board.is_owner ? onDeleteBoard : undefined}
       />
 
       <BoardToolbar
@@ -501,6 +530,7 @@ export function KanbanBoard({ boardId, onDeleteBoard }: KanbanBoardProps) {
             card={openCard}
             boardKey={board.key}
             columns={columns}
+            members={board.members ?? []}
             currentUser={currentUser}
             onClose={() => setOpenCardId(null)}
             onUpdate={(patch) => handleUpdateCard(openCard.id, patch)}

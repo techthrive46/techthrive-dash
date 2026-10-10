@@ -10,8 +10,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { queryKeys, useDocs } from "@/lib/queries";
 import type { DocListItem } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -29,25 +31,23 @@ function formatEdited(iso: string): string {
 
 export default function DocsHomePage() {
   const router = useRouter();
-  const [docs, setDocs] = useState<DocListItem[] | null>(null);
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
   const [creating, setCreating] = useState(false);
+  const { data: docs = null } = useDocs(searchTerm);
 
+  // Only send a search once typing pauses; clearing the box applies at once.
   useEffect(() => {
-    let active = true;
-    const handle = setTimeout(() => {
-      api.getDocs(query).then((data) => active && setDocs(data));
-    }, query ? SEARCH_DEBOUNCE_MS : 0);
-    return () => {
-      active = false;
-      clearTimeout(handle);
-    };
+    const handle = setTimeout(() => setSearchTerm(query.trim()), query ? SEARCH_DEBOUNCE_MS : 0);
+    return () => clearTimeout(handle);
   }, [query]);
 
   async function handleCreate() {
     setCreating(true);
     try {
       const doc = await api.createDoc();
+      void queryClient.invalidateQueries({ queryKey: queryKeys.docs.lists() });
       router.push(`/docs/${doc.id}`);
     } catch {
       setCreating(false);
@@ -57,7 +57,10 @@ export default function DocsHomePage() {
   async function handleDelete(doc: DocListItem) {
     if (!confirm(`Delete "${doc.title}"? This can't be undone.`)) return;
     await api.deleteDoc(doc.id);
-    setDocs((prev) => prev?.filter((item) => item.id !== doc.id) ?? null);
+    // Drop it from every cached search, not just the one on screen.
+    queryClient.setQueriesData<DocListItem[]>({ queryKey: queryKeys.docs.lists() }, (prev) =>
+      prev?.filter((item) => item.id !== doc.id),
+    );
   }
 
   return (

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MarkdownEditor, MarkdownHint, MarkdownView } from "@/components/ui/markdown-editor";
 import { api } from "@/lib/api";
+import { queryKeys, usePhaseUpdates } from "@/lib/queries";
 import {
   MILESTONE_STATUS_LABELS,
   MILESTONE_STATUS_VARIANTS,
@@ -19,7 +20,8 @@ import type {
   User,
 } from "@/lib/types";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
-import { FormEvent, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { FormEvent, useState } from "react";
 
 const STATUS_OPTIONS: PhaseStatus[] = ["not_started", "in_progress", "done"];
 
@@ -50,8 +52,9 @@ export function PhasePanel({
   const [savingNotes, setSavingNotes] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
 
-  const [updates, setUpdates] = useState<PhaseUpdate[]>([]);
-  const [updatesLoading, setUpdatesLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const updatesKey = queryKeys.projects.phaseUpdates(projectId, phase.key);
+  const { data: updates = [], isPending: updatesLoading } = usePhaseUpdates(projectId, phase.key);
   const [updateBody, setUpdateBody] = useState("");
   const [postingUpdate, setPostingUpdate] = useState(false);
 
@@ -60,30 +63,14 @@ export function PhasePanel({
 
   const notesDirty = notesDraft !== phase.notes;
 
-  useEffect(() => {
-    let active = true;
-
-    async function fetchUpdates() {
-      const data = await api.getPhaseUpdates(projectId, phase.key);
-      if (!active) return;
-      setUpdates(data);
-      setUpdatesLoading(false);
-    }
-
-    void fetchUpdates();
-
-    return () => {
-      active = false;
-    };
-  }, [projectId, phase.key]);
-
   async function handleStatusChange(status: PhaseStatus) {
     if (status === phase.status) return;
     setSavingStatus(true);
     try {
       const updated = await api.updatePhase(projectId, phase.key, { status });
       onPhaseUpdated(updated);
-      setUpdates(await api.getPhaseUpdates(projectId, phase.key));
+      // The server logs status changes as updates.
+      await queryClient.invalidateQueries({ queryKey: updatesKey });
     } finally {
       setSavingStatus(false);
     }
@@ -110,7 +97,7 @@ export function PhasePanel({
     setPostingUpdate(true);
     try {
       const update = await api.createPhaseUpdate(projectId, phase.key, trimmed);
-      setUpdates((prev) => [update, ...prev]);
+      queryClient.setQueryData<PhaseUpdate[]>(updatesKey, (prev = []) => [update, ...prev]);
       setUpdateBody("");
       onPhaseUpdated({ ...phase, update_count: phase.update_count + 1 });
     } finally {
@@ -120,7 +107,9 @@ export function PhasePanel({
 
   async function handleDeleteUpdate(updateId: string) {
     await api.deletePhaseUpdate(projectId, phase.key, updateId);
-    setUpdates((prev) => prev.filter((u) => u.id !== updateId));
+    queryClient.setQueryData<PhaseUpdate[]>(updatesKey, (prev = []) =>
+      prev.filter((u) => u.id !== updateId),
+    );
     onPhaseUpdated({ ...phase, update_count: Math.max(0, phase.update_count - 1) });
   }
 

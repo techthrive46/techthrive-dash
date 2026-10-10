@@ -30,7 +30,17 @@ export class ApiError extends Error {
   }
 }
 
-async function refreshAccessToken(): Promise<string | null> {
+// Concurrent 401s share one in-flight refresh instead of each sending its own.
+let refreshInFlight: Promise<string | null> | null = null;
+
+function refreshAccessToken(): Promise<string | null> {
+  refreshInFlight ??= requestNewAccessToken().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+async function requestNewAccessToken(): Promise<string | null> {
   const refresh = getRefreshToken();
   if (!refresh) return null;
 
@@ -82,9 +92,14 @@ async function apiFetch<T>(
     let message = "Request failed";
     try {
       const errorData = await response.json();
+      // DRF field errors look like {"email": ["No account uses this email."]}.
+      const firstFieldError = Object.values(errorData)
+        .flat()
+        .find((value) => typeof value === "string");
       message =
         errorData.detail ||
         errorData.non_field_errors?.[0] ||
+        firstFieldError ||
         JSON.stringify(errorData);
     } catch {
       message = response.statusText;
@@ -154,6 +169,15 @@ export const api = {
 
   deleteProject: (id: string) =>
     apiFetch<void>(`/api/projects/${id}/`, { method: "DELETE" }),
+
+  addProjectMember: (projectId: string, email: string) =>
+    apiFetch<User>(`/api/projects/${projectId}/members/`, {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
+  removeProjectMember: (projectId: string, userId: number) =>
+    apiFetch<void>(`/api/projects/${projectId}/members/${userId}/`, { method: "DELETE" }),
 
   getMilestones: async (projectId: string) => {
     const data = await apiFetch<PaginatedResponse<Milestone> | Milestone[]>(

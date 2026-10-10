@@ -2,31 +2,24 @@
 
 import { PageHeader } from "@/components/layout/page-header";
 import { FadeIn } from "@/components/motion/fade-in";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
-import type { Board } from "@/lib/types";
+import { queryKeys, useBoards } from "@/lib/queries";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
 
 export default function KanbanListPage() {
-  const [boards, setBoards] = useState<Board[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: boards = [], isPending: loading } = useBoards();
   const [modalOpen, setModalOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [saving, setSaving] = useState(false);
-
-  async function loadBoards() {
-    const data = await api.getBoards();
-    setBoards(data);
-  }
-
-  useEffect(() => {
-    loadBoards().finally(() => setLoading(false));
-  }, []);
 
   async function handleCreate(event: FormEvent) {
     event.preventDefault();
@@ -36,7 +29,10 @@ export default function KanbanListPage() {
       await api.createBoard({ title: title.trim() });
       setTitle("");
       setModalOpen(false);
-      await loadBoards();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.boards.list() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard }),
+      ]);
     } finally {
       setSaving(false);
     }
@@ -81,6 +77,15 @@ export default function KanbanListPage() {
                       {board.key}
                     </span>
                     <CardTitle>{board.title}</CardTitle>
+                    {board.is_owner === false && (
+                      <Badge
+                        variant="muted"
+                        className="ml-auto"
+                        title={`Shared by ${board.owner?.email ?? "another user"}`}
+                      >
+                        shared
+                      </Badge>
+                    )}
                   </div>
                   <CardDescription>
                     {board.column_count ?? 0} columns · {board.card_count ?? 0} tickets

@@ -6,23 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatCard } from "@/components/ui/stat-card";
-import { api } from "@/lib/api";
-import type { DashboardSummary } from "@/lib/types";
+import { useDashboardSummary } from "@/lib/queries";
 import { formatDateTime } from "@/lib/utils";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 
 export default function DashboardHomePage() {
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api
-      .getDashboardSummary()
-      .then(setSummary)
-      .finally(() => setLoading(false));
-  }, []);
+  const { data: summary, isPending: loading } = useDashboardSummary();
 
   return (
     <>
