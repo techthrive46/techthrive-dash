@@ -169,6 +169,8 @@ DEPLOY_POLICY='{
   "Version": "2012-10-17",
   "Statement": [
     {"Effect": "Allow", "Action": "ecr:GetAuthorizationToken", "Resource": "*"},
+    {"Effect": "Allow", "Action": ["ecr-public:GetAuthorizationToken", "sts:GetServiceBearerToken"],
+      "Resource": "*"},
     {"Effect": "Allow", "Action": [
         "ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer",
         "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage"],
