@@ -39,6 +39,12 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      # The Dockerfile pulls the Lambda adapter from ECR Public. Anonymous pulls
+      # share a data limit across GitHub's runners and can fail with a 429.
+      - name: Log in to Amazon ECR Public
+        run: |
+          aws ecr-public get-login-password --region us-east-1             | docker login --username AWS --password-stdin public.ecr.aws
+
       - name: Build and push image
         run: |
           IMAGE="${{ steps.ecr.outputs.registry }}/$APP:${{ github.sha }}"
