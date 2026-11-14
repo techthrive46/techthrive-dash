@@ -51,12 +51,18 @@ You need: Docker running, the AWS CLI with a `techthrive` profile (`aws configur
 
 4. **Vercel**: set `NEXT_PUBLIC_API_URL` to the backend URL, with no trailing slash, and redeploy. Keep the Sanity variables; Plans still uses Sanity.
 
-5. **Accounts**: everyone signs up on the live site. Then close sign-ups:
+5. **Accounts**: anyone can sign up on the live site, but new accounts can't sign in until an admin approves them. Every admin gets a notification for each sign-up and approves or rejects it on the **Users** page (`/dashboard/users`). Rejected accounts, and approved ones whose access is later removed, are signed out on their next request.
+
+   Admins are accounts with `is_staff`. The migration that added approvals made `admin@techthrivehq.com` an admin if that account already existed, and the very first account on an empty database is always one. To make another existing account an admin (or `--revoke` it), run this against Neon the same way migrations run:
 
    ```bash
-   aws lambda update-function-configuration --profile techthrive --function-name techthrive-backend \
-     --environment "$(aws lambda get-function-configuration --profile techthrive --function-name techthrive-backend \
-       --query Environment --output json | python -c 'import json,sys; e=json.load(sys.stdin); e["Variables"]["ALLOW_REGISTRATION"]="False"; print(json.dumps(e))')"
+   docker run --rm --entrypoint python      -e DATABASE_URL -e DEBUG=False -e SECRET_KEY=admin-only      "$IMAGE" manage.py grant_admin someone@techthrivehq.com
+   ```
+
+   To stop sign-ups entirely, set `ALLOW_REGISTRATION` to `False`:
+
+   ```bash
+   aws lambda update-function-configuration --profile techthrive --function-name techthrive-backend      --environment "$(aws lambda get-function-configuration --profile techthrive --function-name techthrive-backend        --query Environment --output json | python -c 'import json,sys; e=json.load(sys.stdin); e["Variables"]["ALLOW_REGISTRATION"]="False"; print(json.dumps(e))')"
    ```
 
    (Or edit it in the Lambda console: Configuration → Environment variables.) With sign-ups closed, only the very first user can register on an empty database.

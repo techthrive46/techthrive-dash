@@ -9,10 +9,11 @@ import {
   LogoutIcon,
   PlansIcon,
   ProjectsIcon,
+  UsersIcon,
 } from "@/components/icons/nav-icons";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { api } from "@/lib/api";
-import { useCurrentUser, useDashboardSummary } from "@/lib/queries";
+import { useCurrentUser, useDashboardSummary, useManagedUsers } from "@/lib/queries";
 import type { DashboardSummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
@@ -27,6 +28,14 @@ type NavItem = {
   icon: ComponentType<SVGProps<SVGSVGElement>>;
   match: (pathname: string) => boolean;
   count?: (summary: DashboardSummary) => number;
+};
+
+/** Only admins see this; the badge counts sign-ups waiting for review. */
+const usersNavItem: NavItem = {
+  href: "/dashboard/users",
+  label: "Users",
+  icon: UsersIcon,
+  match: (pathname) => pathname.startsWith("/dashboard/users"),
 };
 
 const navItems: NavItem[] = [
@@ -109,6 +118,10 @@ export function TopNav() {
   const queryClient = useQueryClient();
   const { data: summary } = useDashboardSummary();
   const { data: user } = useCurrentUser();
+  const isAdmin = Boolean(user?.is_staff);
+  const { data: pendingUsers } = useManagedUsers("pending", { enabled: isAdmin });
+  const pendingCount = pendingUsers?.counts.pending ?? 0;
+  const items = isAdmin ? [...navItems, usersNavItem] : navItems;
 
   async function handleLogout() {
     await api.logout();
@@ -132,9 +145,14 @@ export function TopNav() {
         </Link>
 
         <nav className="no-scrollbar flex min-w-0 max-w-full justify-self-center items-center gap-1 overflow-x-auto rounded-full bg-[var(--ink)] p-1.5 shadow-[0_8px_24px_-10px_rgba(17,18,22,0.5)]">
-          {navItems.map((item) => {
+          {items.map((item) => {
             const active = item.match(pathname);
-            const count = summary && item.count ? item.count(summary) : 0;
+            const count =
+              item === usersNavItem
+                ? pendingCount
+                : summary && item.count
+                  ? item.count(summary)
+                  : 0;
             const Icon = item.icon;
             return (
               <Link

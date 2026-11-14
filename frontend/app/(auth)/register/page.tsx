@@ -16,6 +16,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [awaitingApproval, setAwaitingApproval] = useState(false);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -23,7 +24,13 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      await api.register(email, password);
+      const account = await api.register(email, password);
+      if (account.status !== "approved") {
+        // An admin has to approve the account before it can sign in.
+        setAwaitingApproval(true);
+        return;
+      }
+      // The very first account on a new workspace is approved straight away.
       await api.login(email, password);
       // Never show a previous account's cached data.
       queryClient.clear();
@@ -34,6 +41,25 @@ export default function RegisterPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (awaitingApproval) {
+    return (
+      <Card className="tech-frame shadow-lg">
+        <p className="tech-label">auth.register()</p>
+        <CardTitle className="mt-1 text-lg">Request sent</CardTitle>
+        <CardDescription className="normal-case">
+          An admin has been notified that <span className="font-medium text-[var(--foreground)]">{email}</span>{" "}
+          signed up. You can sign in once they approve your account.
+        </CardDescription>
+        <Link
+          href="/login"
+          className="btn-tech mt-6 flex w-full items-center justify-center rounded-full px-4 py-2 font-mono text-xs uppercase tracking-wider"
+        >
+          back to login →
+        </Link>
+      </Card>
+    );
   }
 
   return (

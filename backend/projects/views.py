@@ -95,10 +95,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
         serializer = AddMemberSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
-        user = get_user_model().objects.filter(email__iexact=email).first()
+        # Accounts still waiting for approval (or rejected) can't be added.
+        user = get_user_model().objects.filter(email__iexact=email, is_active=True).first()
         if user is None:
             raise ValidationError(
-                {"email": "No account uses this email. Ask them to sign up first."}
+                {"email": "No approved account uses this email. Ask them to sign up first."}
             )
         if user.id == project.user_id:
             raise ValidationError({"email": "That's the project owner."})

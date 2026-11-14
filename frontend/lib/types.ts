@@ -7,6 +7,33 @@ export interface User {
   email: string;
 }
 
+/** The signed-in user. Admins (`is_staff`) review sign-ups. */
+export interface CurrentUser extends User {
+  is_staff: boolean;
+}
+
+/** New sign-ups start "pending" and can't sign in until an admin approves them. */
+export type UserStatus = "pending" | "approved" | "rejected";
+
+export interface RegisterResponse extends User {
+  status: UserStatus;
+}
+
+/** An account as admins see it on the users page. */
+export interface ManagedUser extends User {
+  status: UserStatus;
+  is_staff: boolean;
+  date_joined: string;
+  last_login: string | null;
+  reviewed_by: User | null;
+  reviewed_at: string | null;
+}
+
+export interface ManagedUserList {
+  results: ManagedUser[];
+  counts: Record<UserStatus, number>;
+}
+
 export type MilestoneBucketStatus = "todo" | "in_progress" | "done";
 
 export type SdlcPhaseKey =
@@ -182,7 +209,8 @@ export type NotificationKind =
   | "card_status"
   | "mention"
   | "project_added"
-  | "project_removed";
+  | "project_removed"
+  | "user_registered";
 
 export interface AppNotification {
   id: string;

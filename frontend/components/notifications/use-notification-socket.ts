@@ -147,4 +147,8 @@ function refreshAffectedData(queryClient: QueryClient, notification: AppNotifica
     void queryClient.invalidateQueries({ queryKey: queryKeys.boards.list() });
     void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
   }
+  if (notification.kind === "user_registered") {
+    // Updates the users page and the pending count in the nav.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.managedUsers.all });
+  }
 }

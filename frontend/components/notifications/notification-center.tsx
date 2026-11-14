@@ -25,6 +25,7 @@ const KIND_LABELS: Record<NotificationKind, string> = {
   mention: "Mention",
   project_added: "Project",
   project_removed: "Project",
+  user_registered: "Sign-up",
 };
 
 function timeAgo(iso: string): string {

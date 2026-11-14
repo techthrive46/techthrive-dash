@@ -25,8 +25,30 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractUser):
+    """A dashboard account.
+
+    New sign-ups wait for a staff member (`is_staff`) to approve them. Until
+    then, and after a rejection, `is_active` is False, so Django, the JWT
+    endpoints and the WebSocket gateway all refuse the account.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending approval"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
     username = None
     email = models.EmailField(unique=True)
+    # Accounts created outside sign-up (Django admin, createsuperuser) are
+    # approved; RegisterSerializer marks sign-ups pending. The database default
+    # lets code from before this column existed keep creating users.
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.APPROVED, db_default=Status.APPROVED
+    )
+    reviewed_by = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
