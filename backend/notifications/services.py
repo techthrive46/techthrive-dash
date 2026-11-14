@@ -228,3 +228,19 @@ def notify_project_member_removed(project, member, actor):
         project_id=project.id,
         board_id=project.board_id,
     )
+
+
+# Accounts ------------------------------------------------------------------
+
+
+def notify_user_registered(user):
+    """Tell every admin that `user` signed up and is waiting for approval."""
+    admins = User.objects.filter(is_staff=True, is_active=True)
+    notify(
+        admins,
+        actor=user,
+        kind=Notification.Kind.USER_REGISTERED,
+        title=user.email,
+        message=f"{user.email} signed up and is waiting for your approval",
+        url="/dashboard/users?status=pending",
+    )

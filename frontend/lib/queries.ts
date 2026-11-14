@@ -1,5 +1,5 @@
 import { ApiError, api } from "./api";
-import type { AnalyticsRange, SdlcPhaseKey } from "./types";
+import type { AnalyticsRange, SdlcPhaseKey, UserStatus } from "./types";
 import {
   QueryClient,
   keepPreviousData,
@@ -17,6 +17,10 @@ export const queryKeys = {
       [...queryKeys.userSearch.all, projectId ?? null, query] as const,
   },
   dashboard: ["dashboard"] as const,
+  managedUsers: {
+    all: ["managed-users"] as const,
+    list: (status: UserStatus | "all") => [...queryKeys.managedUsers.all, status] as const,
+  },
   projects: {
     all: ["projects"] as const,
     list: () => [...queryKeys.projects.all, "list"] as const,
@@ -100,6 +104,16 @@ export function useUserSearch(query: string, projectId?: string) {
     queryKey: queryKeys.userSearch.query(trimmed.toLowerCase(), projectId),
     queryFn: () => api.searchUsers(trimmed, projectId),
     enabled: trimmed.length >= USER_SEARCH_MIN_LENGTH,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Admins only: accounts to review. Pass `enabled: false` for everyone else. */
+export function useManagedUsers(status: UserStatus | "all", { enabled = true } = {}) {
+  return useQuery({
+    queryKey: queryKeys.managedUsers.list(status),
+    queryFn: () => api.getManagedUsers(status === "all" ? undefined : status),
+    enabled,
     placeholderData: keepPreviousData,
   });
 }

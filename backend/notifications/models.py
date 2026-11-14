@@ -12,6 +12,7 @@ class Notification(models.Model):
         MENTION = "mention", "Mentioned"
         PROJECT_ADDED = "project_added", "Added to a project"
         PROJECT_REMOVED = "project_removed", "Removed from a project"
+        USER_REGISTERED = "user_registered", "New sign-up to review"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     recipient = models.ForeignKey(

@@ -11,11 +11,14 @@ import type {
   DashboardSummary,
   Canvas,
   CanvasListItem,
+  CurrentUser,
   Doc,
   DocListItem,
   NotificationList,
   KanbanCard,
   KanbanColumn,
+  ManagedUser,
+  ManagedUserList,
   Milestone,
   MilestoneComment,
   PaginatedResponse,
@@ -23,8 +26,10 @@ import type {
   PhaseUpdate,
   Project,
   ProjectPhase,
+  RegisterResponse,
   SdlcPhaseKey,
   User,
+  UserStatus,
 } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -133,7 +138,7 @@ function unwrapList<T>(data: PaginatedResponse<T> | T[]): T[] {
 
 export const api = {
   register: (email: string, password: string) =>
-    apiFetch<User>("/api/auth/register/", {
+    apiFetch<RegisterResponse>("/api/auth/register/", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
@@ -153,7 +158,18 @@ export const api = {
       body: JSON.stringify({ refresh: getRefreshToken() }),
     }).finally(clearTokens),
 
-  me: () => apiFetch<User>("/api/auth/me/"),
+  me: () => apiFetch<CurrentUser>("/api/auth/me/"),
+
+  /** Admins only. Every account, pending first, plus a count per status. */
+  getManagedUsers: (status?: UserStatus) =>
+    apiFetch<ManagedUserList>(`/api/auth/admin/users/${status ? `?status=${status}` : ""}`),
+
+  /** Admins only. Approve or reject an account; either can be undone later. */
+  reviewUser: (userId: number, status: Exclude<UserStatus, "pending">) =>
+    apiFetch<ManagedUser>(`/api/auth/admin/users/${userId}/review/`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    }),
 
   getDashboardSummary: () =>
     apiFetch<DashboardSummary>("/api/dashboard/summary/"),
