@@ -49,7 +49,7 @@ You need: Docker running, the AWS CLI with a `techthrive` profile (`aws configur
    | Variable | `AWS_REGION` | e.g. `ap-south-1` |
    | Variable | `BACKUP_BUCKET` | Printed by the bootstrap |
 
-4. **Vercel**: set `NEXT_PUBLIC_API_URL` to the backend URL, with no trailing slash, and redeploy. Keep the Sanity variables; Plans still uses Sanity.
+4. **Vercel**: set `NEXT_PUBLIC_API_URL` to the backend URL, with no trailing slash, and redeploy.
 
 5. **Accounts**: anyone can sign up on the live site, but new accounts can't sign in until an admin approves them. Every admin gets a notification for each sign-up and approves or rejects it on the **Users** page (`/dashboard/users`). Rejected accounts, and approved ones whose access is later removed, are signed out on their next request.
 
