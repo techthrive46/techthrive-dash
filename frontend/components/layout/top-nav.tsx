@@ -7,7 +7,6 @@ import {
   HomeIcon,
   KanbanIcon,
   LogoutIcon,
-  PlansIcon,
   ProjectsIcon,
   UsersIcon,
 } from "@/components/icons/nav-icons";
@@ -76,12 +75,6 @@ const navItems: NavItem[] = [
     label: "Canvas",
     icon: CanvasIcon,
     match: (pathname) => pathname.startsWith("/canvas"),
-  },
-  {
-    href: "/plans",
-    label: "Plans",
-    icon: PlansIcon,
-    match: (pathname) => pathname.startsWith("/plans"),
   },
 ];
 

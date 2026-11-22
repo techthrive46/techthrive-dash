@@ -100,12 +100,6 @@ export default function AuthLayout({
             >
               Docs
             </Link>
-            <Link
-              href="/plans"
-              className="font-mono text-[10px] uppercase tracking-wider text-[var(--accent)] hover:underline"
-            >
-              Plans
-            </Link>
           </div>
           <p className="font-mono text-[10px] text-[var(--muted-light)]">
             TechThrive Hub · build 2026.06 · all systems nominal
